@@ -16,13 +16,14 @@ import {
   ChevronDown,
   X,
   Save,
-  ArrowRight
+  Building2
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import ConfirmDialog from './ConfirmDialog';
+import ProviderManager from './ProviderManager';
 
 const INVENTORY_STATUS_ORDER: InventoryStatus[] = [
   'En uso',
@@ -35,6 +36,13 @@ const INVENTORY_STATUS_ORDER: InventoryStatus[] = [
 const PARA_USAR_OPTIONS = ['Sin abrir', 'Listo para usar', 'Reservado'];
 const INVENTORY_CATEGORY_OPTIONS: InventoryCategory[] = ['Material', 'Herramienta', 'Producto', 'Contenido', 'Software', 'Insumo', 'Otro'];
 
+const formatCurrency = (amount: number) =>
+  new Intl.NumberFormat('es-CL', {
+    style: 'currency',
+    currency: 'CLP',
+    maximumFractionDigits: 0,
+  }).format(Math.max(0, amount || 0));
+
 export default function Inventory() {
   const [items, setItems] = useState<InventoryItem[]>(storage.getInventory());
   const [config, setConfig] = useState<InventoryConfig>(storage.getInventoryConfig());
@@ -43,7 +51,9 @@ export default function Inventory() {
   const [isAddingItem, setIsAddingItem] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
+  const [isProviderManagerOpen, setIsProviderManagerOpen] = useState(false);
   const [deleteCandidate, setDeleteCandidate] = useState<InventoryItem | null>(null);
+  const isProductionMode = storage.getUserProfile().mode === 'Produccion';
 
   useEffect(() => {
     const currentItems = storage.getInventory();
@@ -106,6 +116,13 @@ export default function Inventory() {
           <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-dim)]">Gestión de recursos y outputs</p>
         </div>
         <div className="flex gap-2">
+          <button
+            onClick={() => setIsProviderManagerOpen(true)}
+            className="p-3 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl text-[var(--text-dim)] hover:text-[var(--accent)] transition-all"
+            aria-label="Mantenedor de proveedores"
+          >
+            <Building2 size={18} />
+          </button>
           <button 
             onClick={() => setIsConfigOpen(true)}
             className="p-3 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl text-[var(--text-dim)] hover:text-[var(--accent)] transition-all"
@@ -159,6 +176,7 @@ export default function Inventory() {
             <InventoryCard 
               key={item.id} 
               item={item} 
+              isProductionMode={isProductionMode}
               onDelete={() => handleDelete(item.id)}
               onEdit={() => setEditingItem(item)}
               onUpdateStatus={(status, sub) => handleUpdateStatus(item.id, status, sub)}
@@ -178,6 +196,7 @@ export default function Inventory() {
           <InventoryFormModal 
             item={editingItem}
             config={config}
+            isProductionMode={isProductionMode}
             onClose={() => {
               setIsAddingItem(false);
               setEditingItem(null);
@@ -217,6 +236,11 @@ export default function Inventory() {
           onCancel={() => setDeleteCandidate(null)}
           onConfirm={confirmDelete}
         />
+
+        <ProviderManager
+          open={isProviderManagerOpen}
+          onClose={() => setIsProviderManagerOpen(false)}
+        />
       </AnimatePresence>
     </div>
   );
@@ -224,6 +248,7 @@ export default function Inventory() {
 
 interface InventoryCardProps {
   item: InventoryItem;
+  isProductionMode: boolean;
   onDelete: () => void;
   onEdit: () => void;
   onUpdateStatus: (status: InventoryStatus, sub: string) => void;
@@ -231,6 +256,7 @@ interface InventoryCardProps {
 
 const InventoryCard: React.FC<InventoryCardProps> = ({ 
   item, 
+  isProductionMode,
   onDelete, 
   onEdit, 
   onUpdateStatus 
@@ -255,6 +281,7 @@ const InventoryCard: React.FC<InventoryCardProps> = ({
   const photoStages: ProjectPhotoStage[] = ['before', 'after'];
   const linkedProcessPhotos = item.projectPhotos?.process ?? [];
   const hasLinkedPhotos = Boolean(item.projectPhotos?.before || item.projectPhotos?.after || linkedProcessPhotos.length > 0);
+  const totalCost = (item.unitCost ?? 0) * item.quantity;
 
   useEffect(() => {
     if (!showActions) return;
@@ -335,6 +362,11 @@ const InventoryCard: React.FC<InventoryCardProps> = ({
               <span className="rounded-full border border-[var(--border-subtle)] bg-[var(--bg-app)] px-2.5 py-1 text-[8px] font-bold uppercase tracking-widest text-[var(--text-main)]">
                 Cant. {item.quantity}
               </span>
+              {isProductionMode && item.unitCost && (
+                <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[8px] font-bold uppercase tracking-widest text-emerald-600">
+                  {formatCurrency(totalCost)}
+                </span>
+              )}
             </div>
           </div>
           <div className="flex gap-1">
@@ -382,6 +414,23 @@ const InventoryCard: React.FC<InventoryCardProps> = ({
                   {item.subStatus}
                 </span>
               </div>
+
+              {isProductionMode && (
+                <div className="grid grid-cols-2 gap-2 pt-2">
+                  <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-app)] px-4 py-3">
+                    <p className="text-[8px] font-bold uppercase tracking-widest text-[var(--text-dim)]">Costo unitario</p>
+                    <p className="mt-1 text-sm font-black text-[var(--text-main)]">
+                      {item.unitCost ? formatCurrency(item.unitCost) : 'Sin costo'}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-app)] px-4 py-3">
+                    <p className="text-[8px] font-bold uppercase tracking-widest text-[var(--text-dim)]">Valor total</p>
+                    <p className="mt-1 text-sm font-black text-[var(--text-main)]">
+                      {item.unitCost ? formatCurrency(totalCost) : 'Sin costo'}
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {hasLinkedPhotos && (
                 <div className="space-y-2 pt-1">
@@ -512,11 +561,12 @@ function getOptionsForStatus(status: InventoryStatus, config: InventoryConfig) {
   }
 }
 
-function InventoryFormModal({ item, config, onClose, onSave }: { item: InventoryItem | null, config: InventoryConfig, onClose: () => void, onSave: () => void }) {
+function InventoryFormModal({ item, config, isProductionMode, onClose, onSave }: { item: InventoryItem | null, config: InventoryConfig, isProductionMode: boolean, onClose: () => void, onSave: () => void }) {
   const [name, setName] = useState(item?.name || '');
   const [description, setDescription] = useState(item?.description || '');
   const [category, setCategory] = useState<InventoryCategory>(item?.category || 'Otro');
   const [quantity, setQuantity] = useState(String(item?.quantity || 1));
+  const [unitCost, setUnitCost] = useState(item?.unitCost ? String(item.unitCost) : '');
   const [status, setStatus] = useState<InventoryStatus>(item?.status || 'En uso');
   const [subStatus, setSubStatus] = useState(item?.subStatus || '');
 
@@ -535,6 +585,10 @@ function InventoryFormModal({ item, config, onClose, onSave }: { item: Inventory
     if (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0) {
       return toast.error('La cantidad debe ser mayor a cero');
     }
+    const parsedUnitCost = unitCost.trim() ? Number(unitCost) : undefined;
+    if (parsedUnitCost !== undefined && (!Number.isFinite(parsedUnitCost) || parsedUnitCost < 0)) {
+      return toast.error('El costo unitario no puede ser negativo');
+    }
     
     if (item) {
       storage.updateInventoryItem(item.id, {
@@ -542,6 +596,7 @@ function InventoryFormModal({ item, config, onClose, onSave }: { item: Inventory
         description,
         category,
         quantity: parsedQuantity,
+        unitCost: isProductionMode ? parsedUnitCost : item.unitCost,
         status,
         subStatus,
       });
@@ -552,6 +607,7 @@ function InventoryFormModal({ item, config, onClose, onSave }: { item: Inventory
         description,
         category,
         quantity: parsedQuantity,
+        unitCost: isProductionMode ? parsedUnitCost : undefined,
         status,
         subStatus,
       });
@@ -623,6 +679,37 @@ function InventoryFormModal({ item, config, onClose, onSave }: { item: Inventory
               />
             </div>
           </div>
+
+          {isProductionMode && (
+            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 space-y-3">
+              <div className="space-y-1">
+                <label className="label-caps !ml-0 !mb-0 text-emerald-700">Producción</label>
+                <p className="text-[9px] font-bold uppercase tracking-wider text-emerald-700/80">
+                  Control de costos habilitado por modo Producción
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <label className="label-caps !ml-0">Costo unitario</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={unitCost}
+                    onChange={(e) => setUnitCost(e.target.value)}
+                    placeholder="0"
+                    className="input-clean !p-4 text-sm font-medium"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="label-caps !ml-0">Valor total</label>
+                  <div className="flex h-[52px] items-center rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] px-4 text-sm font-black text-[var(--text-main)]">
+                    {formatCurrency((Number(unitCost) || 0) * (Number(quantity) || 0))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { storage } from '../lib/storage';
 import { useNavigate } from 'react-router-dom';
 import { Priority, ProjectType } from '../types';
-import { ArrowLeft, Check, Plus } from 'lucide-react';
+import { ArrowLeft, Check, Factory, Plus } from 'lucide-react';
 import { cn } from '../lib/utils';
 import LoadingSpinner from './LoadingSpinner';
 import { createDefaultDirection } from '../lib/direction';
@@ -12,6 +12,7 @@ export default function CreateProject() {
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<Priority>('Next1');
   const [type, setType] = useState<ProjectType>('De la vida');
+  const [productionEnabled, setProductionEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
@@ -40,7 +41,8 @@ export default function CreateProject() {
         createdAt: new Date().toISOString(),
         nextAction: '',
         direction: createDefaultDirection(),
-        ownerId: 'local-user'
+        ownerId: 'local-user',
+        productionEnabled
       });
       
       navigate(`/project/${id}`, { state: { isNew: true } });
@@ -127,6 +129,33 @@ export default function CreateProject() {
             </div>
           </div>
         </div>
+
+        <button
+          type="button"
+          onClick={() => setProductionEnabled((current) => !current)}
+          className="w-full flex items-center justify-between rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 text-left shadow-sm transition-all hover:border-[var(--border-active)] active:scale-[0.99]"
+        >
+          <div className="flex items-center gap-4">
+            <div className={cn(
+              "w-10 h-10 rounded-xl flex items-center justify-center transition-colors",
+              productionEnabled ? "bg-emerald-500/10 text-emerald-600" : "bg-[var(--bg-app)] text-[var(--text-dim)]"
+            )}>
+              <Factory size={18} strokeWidth={2.5} />
+            </div>
+            <div className="space-y-0.5">
+              <p className="text-sm font-bold text-[var(--text-main)]">¿Activar modo Producción?</p>
+            </div>
+          </div>
+          <div className={cn(
+            "w-12 h-6 rounded-full p-1 transition-colors duration-300",
+            productionEnabled ? "bg-[var(--accent)]" : "bg-gray-300"
+          )}>
+            <div className={cn(
+              "w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-300",
+              productionEnabled ? "translate-x-6" : "translate-x-0"
+            )} />
+          </div>
+        </button>
 
         <div className="pt-2">
           <button

@@ -3,13 +3,21 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { storage } from '../lib/storage';
 import { fileToProjectPhoto } from '../lib/image';
 import { Project, LogEntry, ProjectStatus, Priority, ProjectPhoto, ProjectPhotoStage } from '../types';
-import { ArrowLeft, Edit3, CheckCircle2, Clock, History, Send, Target, ChevronRight, Check, Package as PackageIcon, AlertTriangle, Camera } from 'lucide-react';
+import { ArrowLeft, Edit3, CheckCircle2, Clock, History, Send, Target, ChevronRight, Check, Package as PackageIcon, AlertTriangle, Camera, Factory } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { formatMinutes } from '../lib/direction';
 import { toast } from 'sonner';
 import LoadingSpinner from './LoadingSpinner';
 import DirectionSheet from './DirectionSheet';
 import ProjectPhotoSheet from './ProjectPhotoSheet';
+import ProjectProductionPanel from './ProjectProductionPanel';
+
+const formatCurrency = (amount: number) =>
+  new Intl.NumberFormat('es-CL', {
+    style: 'currency',
+    currency: 'CLP',
+    maximumFractionDigits: 0,
+  }).format(Math.max(0, amount || 0));
 
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
@@ -23,6 +31,7 @@ export default function ProjectDetail() {
   const [showFinishedModal, setShowFinishedModal] = useState(false);
   const [isDirectionOpen, setIsDirectionOpen] = useState(false);
   const [isPhotoOpen, setIsPhotoOpen] = useState(false);
+  const [isProductionOpen, setIsProductionOpen] = useState(false);
   const [photoReminderMode, setPhotoReminderMode] = useState(false);
   const [pendingFinishOptions, setPendingFinishOptions] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -36,6 +45,7 @@ export default function ProjectDetail() {
   const afterPhotoInputRef = useRef<HTMLInputElement>(null);
   const processPhotoInputRef = useRef<HTMLInputElement>(null);
   const photoCount = (beforePhoto ? 1 : 0) + (afterPhoto ? 1 : 0) + processPhotos.length;
+  const isProductionEnabled = project?.productionEnabled === true;
 
   const syncPhotos = (projectId: string) => {
     setBeforePhoto(storage.getProjectPhoto(projectId, 'before'));
@@ -149,6 +159,19 @@ export default function ProjectDetail() {
     }
   };
 
+  const handleProductionToggle = () => {
+    if (!id || !project) return;
+
+    const productionEnabled = !project.productionEnabled;
+    storage.updateProject(id, { productionEnabled });
+    setProject({ ...project, productionEnabled });
+    toast.success(productionEnabled ? 'Producción activada' : 'Producción desactivada', {
+      description: productionEnabled
+        ? 'Este proyecto ahora muestra presupuesto, compras y cotizador.'
+        : 'Los datos de producción se conservan, pero quedan ocultos.',
+    });
+  };
+
   const handlePhotoChange = async (stage: ProjectPhotoStage, event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = '';
@@ -255,9 +278,16 @@ export default function ProjectDetail() {
   const direction = project.direction;
   const timeTargetMinutes = direction?.timeTargetMinutes ?? 0;
   const timeAccumulatedMinutes = direction?.timeAccumulatedMinutes ?? 0;
+  const productionSummary = id ? storage.getProjectProductionSummary(id) : null;
+  const budgetTarget = productionSummary?.budgetTarget ?? direction?.budgetTarget ?? 0;
+  const costAccumulated = productionSummary?.totalWithLegacy ?? direction?.costAccumulated ?? 0;
   const hasTimeProgress = timeTargetMinutes > 0 || timeAccumulatedMinutes > 0;
+  const hasBudgetProgress = isProductionEnabled && (budgetTarget > 0 || costAccumulated > 0);
   const timeProgress = timeTargetMinutes > 0
     ? Math.min(100, (timeAccumulatedMinutes / timeTargetMinutes) * 100)
+    : 0;
+  const budgetProgress = budgetTarget > 0
+    ? Math.min(100, (costAccumulated / budgetTarget) * 100)
     : 0;
   const deadlineState = timeTargetMinutes <= 0
     ? 'idle'
@@ -281,6 +311,23 @@ export default function ProjectDetail() {
     : deadlineState === 'near'
       ? 'bg-amber-500'
       : 'bg-emerald-500';
+  const budgetState = budgetTarget <= 0
+    ? 'idle'
+    : costAccumulated > budgetTarget
+      ? 'over'
+      : costAccumulated / budgetTarget >= 0.8
+        ? 'near'
+        : 'safe';
+  const budgetBarColor = budgetState === 'over'
+    ? 'bg-red-500'
+    : budgetState === 'near'
+      ? 'bg-amber-500'
+      : 'bg-emerald-500';
+  const budgetMessage = budgetTarget <= 0
+    ? 'Define presupuesto para medir costos.'
+    : costAccumulated > budgetTarget
+      ? `Sobre presupuesto por ${formatCurrency(costAccumulated - budgetTarget)}.`
+      : `Disponible: ${formatCurrency(budgetTarget - costAccumulated)}.`;
 
   const finishedOptions = [
     { label: 'Venderlo', icon: '💰' },
@@ -536,8 +583,21 @@ export default function ProjectDetail() {
                 </span>
               )}
             </button>
+
+            {isProductionEnabled && (
+              <button
+                type="button"
+                onClick={() => setIsProductionOpen(true)}
+                className="relative flex h-11 w-11 shrink-0 flex-col items-center justify-center rounded-2xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-600 shadow-sm transition-all hover:border-emerald-500/40 hover:bg-emerald-500/15 active:scale-95"
+                aria-label="Abrir producción del proyecto"
+              >
+                <Factory size={14} strokeWidth={2.5} />
+                <span className="mt-0.5 text-[7px] font-bold uppercase tracking-[0.12em]">Prod</span>
+              </button>
+            )}
           </div>
         </div>
+
       </div>
 
       {/* Summary of Direction */}
@@ -575,7 +635,20 @@ export default function ProjectDetail() {
         )}
       </section>
 
-      {(direction?.in?.length > 0 || hasTimeProgress) && (
+      {isProductionEnabled && id && (
+        <ProjectProductionPanel
+          projectId={id}
+          projectName={project.name}
+          open={isProductionOpen}
+          onOpenChange={setIsProductionOpen}
+          onChange={() => {
+            const updatedProject = storage.getProject(id);
+            if (updatedProject) setProject(updatedProject);
+          }}
+        />
+      )}
+
+      {(direction?.in?.length > 0 || hasTimeProgress || hasBudgetProgress) && (
         <section className="card-clean p-5 space-y-5">
           <div className="flex items-center justify-between">
             <label className="label-caps !ml-0 !mb-0">Insumos (IN)</label>
@@ -631,6 +704,46 @@ export default function ProjectDetail() {
                         : "text-[var(--text-dim)]"
                   )}>
                     {deadlineMessage}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {hasBudgetProgress && (
+            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-0.5">
+                  <p className="text-[8px] font-bold uppercase tracking-[0.15em] text-emerald-700">Presupuesto</p>
+                  <p className="text-sm font-semibold text-[var(--text-main)]">
+                    {budgetTarget > 0 ? formatCurrency(budgetTarget) : 'Sin presupuesto definido'}
+                  </p>
+                </div>
+                <div className="space-y-0.5 text-right">
+                  <p className="text-[8px] font-bold uppercase tracking-[0.15em] text-emerald-700">Gastado</p>
+                  <p className="text-sm font-semibold text-[var(--text-main)]">
+                    {formatCurrency(costAccumulated)}
+                  </p>
+                </div>
+              </div>
+
+              {budgetTarget > 0 && (
+                <div className="space-y-2">
+                  <div className="h-2 overflow-hidden rounded-full border border-emerald-500/20 bg-[var(--bg-card)]">
+                    <div
+                      className={cn("h-full rounded-full transition-all", budgetBarColor)}
+                      style={{ width: `${budgetProgress}%` }}
+                    />
+                  </div>
+                  <p className={cn(
+                    "text-[8px] font-bold uppercase tracking-[0.15em]",
+                    budgetState === 'over'
+                      ? "text-red-500"
+                      : budgetState === 'near'
+                        ? "text-amber-600"
+                        : "text-emerald-700"
+                  )}>
+                    {budgetMessage}
                   </p>
                 </div>
               )}
@@ -758,6 +871,36 @@ export default function ProjectDetail() {
           ))}
         </div>
       </section>
+
+      <button
+        type="button"
+        onClick={handleProductionToggle}
+        className="w-full flex items-center justify-between rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 text-left shadow-sm transition-all hover:border-[var(--border-active)] active:scale-[0.99]"
+      >
+        <div className="flex items-center gap-4">
+          <div className={cn(
+            "w-10 h-10 rounded-xl flex items-center justify-center transition-colors",
+            isProductionEnabled ? "bg-emerald-500/10 text-emerald-600" : "bg-[var(--bg-app)] text-[var(--text-dim)]"
+          )}>
+            <Factory size={18} strokeWidth={2.5} />
+          </div>
+          <div className="space-y-0.5">
+            <p className="text-sm font-bold text-[var(--text-main)]">Producción</p>
+            <p className="text-[9px] text-[var(--text-dim)] uppercase font-bold tracking-wider">
+              {isProductionEnabled ? 'Presupuesto, compras y cotizador activos' : 'Activar herramientas de producción'}
+            </p>
+          </div>
+        </div>
+        <div className={cn(
+          "w-12 h-6 rounded-full p-1 transition-colors duration-300",
+          isProductionEnabled ? "bg-[var(--accent)]" : "bg-gray-300"
+        )}>
+          <div className={cn(
+            "w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-300",
+            isProductionEnabled ? "translate-x-6" : "translate-x-0"
+          )} />
+        </div>
+      </button>
     </div>
   );
 }

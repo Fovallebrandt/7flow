@@ -52,6 +52,8 @@ export default function Settings({ onClose }: { onClose?: () => void }) {
       config: storage.getInventoryConfig(),
       user: storage.getUserProfile(),
       photos: storage.getProjectPhotos(),
+      production: storage.getAllProjectProduction(),
+      providers: storage.getProviders(),
       timeStats: storage.getProjectTimeStats(),
       logs: storage.getProjects().reduce((acc: any, p) => {
         acc[p.id] = storage.getLogs(p.id);
@@ -84,6 +86,8 @@ export default function Settings({ onClose }: { onClose?: () => void }) {
         if (data.config) storage.saveInventoryConfig(data.config);
         if (data.user) storage.saveUserProfile(data.user);
         if (data.photos) storage.saveProjectPhotos(data.photos);
+        if (data.production) storage.saveAllProjectProduction(data.production);
+        if (Array.isArray(data.providers)) storage.saveProviders(data.providers);
         if (Array.isArray(data.timeStats)) storage.saveProjectTimeStats(data.timeStats as ProjectTimeRecord[]);
         if (data.logs) {
           Object.entries(data.logs).forEach(([id, logs]) => {

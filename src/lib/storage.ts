@@ -1,4 +1,25 @@
-import { Project, LogEntry, InventoryItem, InventoryCategory, InventoryConfig, ProjectPhoto, ProjectPhotoStage, ProjectPhotos, ProjectTimeRecord, ProjectTimeSummary } from '../types';
+import {
+  Project,
+  LogEntry,
+  InventoryItem,
+  InventoryCategory,
+  InventoryConfig,
+  ProjectPhoto,
+  ProjectPhotoStage,
+  ProjectPhotos,
+  ProjectTimeRecord,
+  ProjectTimeSummary,
+  AppMode,
+  ProductionCostCategory,
+  ProductionQuote,
+  ProductionQuoteStatus,
+  ProjectCostRecord,
+  ProjectProductionData,
+  ProjectProductionSummary,
+  Provider,
+  PurchasePlanItem,
+  PurchasePlanStatus,
+} from '../types';
 import { normalizeDirection } from './direction';
 import { buildProjectTimeRecord, findProjectCompletionTimestamp, summarizeProjectTimeRecords } from './timeStats';
 
@@ -6,19 +27,23 @@ const PROJECTS_KEY = '7flow_projects';
 const LOGS_KEY_PREFIX = '7flow_logs_';
 const PROJECT_PHOTO_KEY_PREFIX = '7flow_project_photo_';
 const PROJECT_PROCESS_PHOTOS_KEY_PREFIX = '7flow_project_process_photos_';
+const PROJECT_PRODUCTION_KEY_PREFIX = '7flow_project_production_';
 const PROJECT_TIME_STATS_KEY = '7flow_project_time_stats';
 const INVENTORY_KEY = '7flow_inventory';
 const INVENTORY_CONFIG_KEY = '7flow_inventory_config';
 const USER_PROFILE_KEY = '7flow_user_profile';
+const PROVIDERS_KEY = '7flow_providers';
 
 export interface UserProfile {
   name: string;
   avatarLetter: string;
+  mode: AppMode;
 }
 
 const DEFAULT_USER: UserProfile = {
   name: 'Fernando',
-  avatarLetter: 'F'
+  avatarLetter: 'F',
+  mode: 'Creativo',
 };
 
 const DEFAULT_CONFIG: InventoryConfig = {
@@ -27,21 +52,119 @@ const DEFAULT_CONFIG: InventoryConfig = {
 };
 
 const INVENTORY_CATEGORIES: InventoryCategory[] = ['Material', 'Herramienta', 'Producto', 'Contenido', 'Software', 'Insumo', 'Otro'];
+const PRODUCTION_CATEGORIES: ProductionCostCategory[] = ['Materiales', 'Herramientas', 'Servicios', 'Transporte', 'Mano de obra', 'Otros'];
+const QUOTE_STATUSES: ProductionQuoteStatus[] = ['Cotizada', 'En compra', 'Descartada'];
+const PURCHASE_STATUSES: PurchasePlanStatus[] = ['Pendiente', 'Comprado', 'Cancelado'];
+
+const createId = () => Math.random().toString(36).substr(2, 9);
+
+const toAmount = (value: unknown) => {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? Math.max(0, Math.round(amount)) : 0;
+};
+
+const normalizeProductionCategory = (category: unknown): ProductionCostCategory =>
+  PRODUCTION_CATEGORIES.includes(category as ProductionCostCategory)
+    ? category as ProductionCostCategory
+    : 'Otros';
 
 const normalizeInventoryItem = (item: InventoryItem): InventoryItem => ({
   ...item,
   category: INVENTORY_CATEGORIES.includes(item.category) ? item.category : 'Otro',
   quantity: Number.isFinite(item.quantity) && item.quantity > 0 ? item.quantity : 1,
+  unitCost: Number.isFinite(item.unitCost) && Number(item.unitCost) > 0 ? Number(item.unitCost) : undefined,
 });
+
+const normalizeUserProfile = (profile?: Partial<UserProfile> | null): UserProfile => ({
+  name: typeof profile?.name === 'string' && profile.name.trim() ? profile.name : DEFAULT_USER.name,
+  avatarLetter: typeof profile?.avatarLetter === 'string' && profile.avatarLetter.trim()
+    ? profile.avatarLetter
+    : DEFAULT_USER.avatarLetter,
+  mode: profile?.mode === 'Produccion' ? 'Produccion' : 'Creativo',
+});
+
+const normalizeQuote = (quote: Partial<ProductionQuote>): ProductionQuote => {
+  const now = new Date().toISOString();
+  return {
+    id: typeof quote.id === 'string' && quote.id ? quote.id : createId(),
+    provider: typeof quote.provider === 'string' ? quote.provider : '',
+    itemName: typeof quote.itemName === 'string' ? quote.itemName : '',
+    category: normalizeProductionCategory(quote.category),
+    quantity: toAmount(quote.quantity) || 1,
+    unitPrice: toAmount(quote.unitPrice),
+    contact: typeof quote.contact === 'string' ? quote.contact : '',
+    notes: typeof quote.notes === 'string' ? quote.notes : '',
+    status: QUOTE_STATUSES.includes(quote.status as ProductionQuoteStatus) ? quote.status as ProductionQuoteStatus : 'Cotizada',
+    createdAt: typeof quote.createdAt === 'string' ? quote.createdAt : now,
+    updatedAt: typeof quote.updatedAt === 'string' ? quote.updatedAt : now,
+  };
+};
+
+const normalizePurchase = (purchase: Partial<PurchasePlanItem>): PurchasePlanItem => {
+  const now = new Date().toISOString();
+  return {
+    id: typeof purchase.id === 'string' && purchase.id ? purchase.id : createId(),
+    itemName: typeof purchase.itemName === 'string' ? purchase.itemName : '',
+    category: normalizeProductionCategory(purchase.category),
+    quantity: toAmount(purchase.quantity) || 1,
+    estimatedUnitCost: toAmount(purchase.estimatedUnitCost),
+    provider: typeof purchase.provider === 'string' && purchase.provider ? purchase.provider : undefined,
+    quoteId: typeof purchase.quoteId === 'string' && purchase.quoteId ? purchase.quoteId : undefined,
+    status: PURCHASE_STATUSES.includes(purchase.status as PurchasePlanStatus) ? purchase.status as PurchasePlanStatus : 'Pendiente',
+    createdAt: typeof purchase.createdAt === 'string' ? purchase.createdAt : now,
+    updatedAt: typeof purchase.updatedAt === 'string' ? purchase.updatedAt : now,
+    purchasedAt: typeof purchase.purchasedAt === 'string' ? purchase.purchasedAt : undefined,
+  };
+};
+
+const normalizeCost = (cost: Partial<ProjectCostRecord>): ProjectCostRecord => {
+  const quantity = toAmount(cost.quantity) || 1;
+  const unitCost = toAmount(cost.unitCost);
+  return {
+    id: typeof cost.id === 'string' && cost.id ? cost.id : createId(),
+    itemName: typeof cost.itemName === 'string' ? cost.itemName : '',
+    category: normalizeProductionCategory(cost.category),
+    quantity,
+    unitCost,
+    total: toAmount(cost.total) || quantity * unitCost,
+    provider: typeof cost.provider === 'string' && cost.provider ? cost.provider : undefined,
+    purchaseId: typeof cost.purchaseId === 'string' && cost.purchaseId ? cost.purchaseId : undefined,
+    createdAt: typeof cost.createdAt === 'string' ? cost.createdAt : new Date().toISOString(),
+  };
+};
+
+const normalizeProductionData = (data?: Partial<ProjectProductionData> | null): ProjectProductionData => ({
+  quotes: Array.isArray(data?.quotes) ? data.quotes.map(normalizeQuote) : [],
+  purchases: Array.isArray(data?.purchases) ? data.purchases.map(normalizePurchase) : [],
+  costs: Array.isArray(data?.costs) ? data.costs.map(normalizeCost) : [],
+});
+
+const normalizeProvider = (provider: Partial<Provider>): Provider => {
+  const now = new Date().toISOString();
+  return {
+    id: typeof provider.id === 'string' && provider.id ? provider.id : createId(),
+    name: typeof provider.name === 'string' ? provider.name : '',
+    category: normalizeProductionCategory(provider.category),
+    contact: typeof provider.contact === 'string' ? provider.contact : '',
+    phone: typeof provider.phone === 'string' ? provider.phone : '',
+    email: typeof provider.email === 'string' ? provider.email : '',
+    website: typeof provider.website === 'string' ? provider.website : '',
+    address: typeof provider.address === 'string' ? provider.address : '',
+    notes: typeof provider.notes === 'string' ? provider.notes : '',
+    archived: provider.archived === true,
+    createdAt: typeof provider.createdAt === 'string' ? provider.createdAt : now,
+    updatedAt: typeof provider.updatedAt === 'string' ? provider.updatedAt : now,
+  };
+};
 
 export const storage = {
   getUserProfile: (): UserProfile => {
     const data = localStorage.getItem(USER_PROFILE_KEY);
-    return data ? JSON.parse(data) : DEFAULT_USER;
+    return normalizeUserProfile(data ? JSON.parse(data) : DEFAULT_USER);
   },
 
   saveUserProfile: (profile: UserProfile) => {
-    localStorage.setItem(USER_PROFILE_KEY, JSON.stringify(profile));
+    localStorage.setItem(USER_PROFILE_KEY, JSON.stringify(normalizeUserProfile(profile)));
   },
   
   getProjects: (): Project[] => {
@@ -51,6 +174,7 @@ export const storage = {
     return projects.map((project: Project) => ({
       ...project,
       direction: normalizeDirection(project.direction),
+      productionEnabled: project.productionEnabled === true,
     }));
   },
   
@@ -247,6 +371,214 @@ export const storage = {
       logs.forEach(l => allLogs.push({ ...l, projectId: p.id }));
     });
     return allLogs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  },
+
+  getProviders: (): Provider[] => {
+    const data = localStorage.getItem(PROVIDERS_KEY);
+    const providers = data ? JSON.parse(data) : [];
+    return Array.isArray(providers) ? providers.map(normalizeProvider) : [];
+  },
+
+  saveProviders: (providers: Provider[]) => {
+    localStorage.setItem(PROVIDERS_KEY, JSON.stringify(providers.map(normalizeProvider)));
+  },
+
+  addProvider: (provider: Omit<Provider, 'id' | 'createdAt' | 'updatedAt'>) => {
+    const providers = storage.getProviders();
+    const now = new Date().toISOString();
+    const newProvider = normalizeProvider({ ...provider, id: createId(), createdAt: now, updatedAt: now });
+    storage.saveProviders([newProvider, ...providers]);
+    return newProvider.id;
+  },
+
+  updateProvider: (providerId: string, updates: Partial<Provider>) => {
+    const providers = storage.getProviders();
+    storage.saveProviders(providers.map((provider) =>
+      provider.id === providerId
+        ? normalizeProvider({ ...provider, ...updates, updatedAt: new Date().toISOString() })
+        : provider,
+    ));
+  },
+
+  deleteProvider: (providerId: string) => {
+    storage.saveProviders(storage.getProviders().filter((provider) => provider.id !== providerId));
+  },
+
+  getProjectProduction: (projectId: string): ProjectProductionData => {
+    const data = localStorage.getItem(`${PROJECT_PRODUCTION_KEY_PREFIX}${projectId}`);
+    return normalizeProductionData(data ? JSON.parse(data) : null);
+  },
+
+  saveProjectProduction: (projectId: string, data: ProjectProductionData) => {
+    localStorage.setItem(`${PROJECT_PRODUCTION_KEY_PREFIX}${projectId}`, JSON.stringify(normalizeProductionData(data)));
+  },
+
+  getAllProjectProduction: (): Record<string, ProjectProductionData> => {
+    return storage.getProjects().reduce((acc, project) => {
+      const data = storage.getProjectProduction(project.id);
+      if (data.quotes.length || data.purchases.length || data.costs.length) {
+        acc[project.id] = data;
+      }
+      return acc;
+    }, {} as Record<string, ProjectProductionData>);
+  },
+
+  saveAllProjectProduction: (production: Record<string, ProjectProductionData>) => {
+    Object.entries(production).forEach(([projectId, data]) => {
+      storage.saveProjectProduction(projectId, data);
+    });
+  },
+
+  addQuote: (projectId: string, quote: Omit<ProductionQuote, 'id' | 'createdAt' | 'updatedAt'>) => {
+    const data = storage.getProjectProduction(projectId);
+    const now = new Date().toISOString();
+    const newQuote = normalizeQuote({ ...quote, id: createId(), createdAt: now, updatedAt: now });
+    storage.saveProjectProduction(projectId, { ...data, quotes: [newQuote, ...data.quotes] });
+    return newQuote.id;
+  },
+
+  updateQuote: (projectId: string, quoteId: string, updates: Partial<ProductionQuote>) => {
+    const data = storage.getProjectProduction(projectId);
+    const quotes = data.quotes.map((quote) =>
+      quote.id === quoteId ? normalizeQuote({ ...quote, ...updates, updatedAt: new Date().toISOString() }) : quote,
+    );
+    storage.saveProjectProduction(projectId, { ...data, quotes });
+  },
+
+  deleteQuote: (projectId: string, quoteId: string) => {
+    const data = storage.getProjectProduction(projectId);
+    storage.saveProjectProduction(projectId, {
+      ...data,
+      quotes: data.quotes.filter((quote) => quote.id !== quoteId),
+    });
+  },
+
+  addPurchasePlanItem: (projectId: string, item: Omit<PurchasePlanItem, 'id' | 'createdAt' | 'updatedAt'>) => {
+    const data = storage.getProjectProduction(projectId);
+    const now = new Date().toISOString();
+    const newItem = normalizePurchase({ ...item, id: createId(), createdAt: now, updatedAt: now });
+    storage.saveProjectProduction(projectId, { ...data, purchases: [newItem, ...data.purchases] });
+    return newItem.id;
+  },
+
+  updatePurchasePlanItem: (projectId: string, purchaseId: string, updates: Partial<PurchasePlanItem>) => {
+    const data = storage.getProjectProduction(projectId);
+    const purchases = data.purchases.map((purchase) =>
+      purchase.id === purchaseId ? normalizePurchase({ ...purchase, ...updates, updatedAt: new Date().toISOString() }) : purchase,
+    );
+    storage.saveProjectProduction(projectId, { ...data, purchases });
+  },
+
+  deletePurchasePlanItem: (projectId: string, purchaseId: string) => {
+    const data = storage.getProjectProduction(projectId);
+    storage.saveProjectProduction(projectId, {
+      ...data,
+      purchases: data.purchases.filter((purchase) => purchase.id !== purchaseId),
+    });
+  },
+
+  convertQuoteToPurchase: (projectId: string, quoteId: string) => {
+    const data = storage.getProjectProduction(projectId);
+    const quote = data.quotes.find((item) => item.id === quoteId);
+    if (!quote) return null;
+
+    const now = new Date().toISOString();
+    const purchase = normalizePurchase({
+      id: createId(),
+      itemName: quote.itemName,
+      category: quote.category,
+      quantity: quote.quantity,
+      estimatedUnitCost: quote.unitPrice,
+      provider: quote.provider,
+      quoteId: quote.id,
+      status: 'Pendiente',
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    storage.saveProjectProduction(projectId, {
+      quotes: data.quotes.map((item) =>
+        item.id === quoteId ? normalizeQuote({ ...item, status: 'En compra', updatedAt: now }) : item,
+      ),
+      purchases: [purchase, ...data.purchases],
+      costs: data.costs,
+    });
+
+    return purchase.id;
+  },
+
+  addCostRecord: (projectId: string, cost: Omit<ProjectCostRecord, 'id' | 'createdAt' | 'total'> & { total?: number }) => {
+    const data = storage.getProjectProduction(projectId);
+    const record = normalizeCost({ ...cost, id: createId(), createdAt: new Date().toISOString() });
+    storage.saveProjectProduction(projectId, { ...data, costs: [record, ...data.costs] });
+    return record.id;
+  },
+
+  updateCostRecord: (projectId: string, costId: string, updates: Partial<ProjectCostRecord>) => {
+    const data = storage.getProjectProduction(projectId);
+    const costs = data.costs.map((cost) =>
+      cost.id === costId ? normalizeCost({ ...cost, ...updates }) : cost,
+    );
+    storage.saveProjectProduction(projectId, { ...data, costs });
+  },
+
+  deleteCostRecord: (projectId: string, costId: string) => {
+    const data = storage.getProjectProduction(projectId);
+    storage.saveProjectProduction(projectId, {
+      ...data,
+      costs: data.costs.filter((cost) => cost.id !== costId),
+    });
+  },
+
+  convertPurchaseToCost: (projectId: string, purchaseId: string, updates: Partial<ProjectCostRecord> = {}) => {
+    const data = storage.getProjectProduction(projectId);
+    const purchase = data.purchases.find((item) => item.id === purchaseId);
+    if (!purchase) return null;
+
+    const now = new Date().toISOString();
+    const cost = normalizeCost({
+      id: createId(),
+      itemName: updates.itemName || purchase.itemName,
+      category: updates.category || purchase.category,
+      quantity: updates.quantity ?? purchase.quantity,
+      unitCost: updates.unitCost ?? purchase.estimatedUnitCost,
+      provider: updates.provider || purchase.provider,
+      purchaseId: purchase.id,
+      createdAt: now,
+    });
+
+    storage.saveProjectProduction(projectId, {
+      quotes: data.quotes,
+      purchases: data.purchases.map((item) =>
+        item.id === purchaseId
+          ? normalizePurchase({ ...item, status: 'Comprado', purchasedAt: now, updatedAt: now })
+          : item,
+      ),
+      costs: [cost, ...data.costs],
+    });
+
+    return cost.id;
+  },
+
+  getProjectProductionSummary: (projectId: string): ProjectProductionSummary => {
+    const project = storage.getProject(projectId);
+    const data = storage.getProjectProduction(projectId);
+    const budgetTarget = project?.direction?.budgetTarget ?? 0;
+    const estimatedTotal = data.purchases
+      .filter((purchase) => purchase.status !== 'Cancelado')
+      .reduce((total, purchase) => total + purchase.quantity * purchase.estimatedUnitCost, 0);
+    const realTotal = data.costs.reduce((total, cost) => total + cost.total, 0);
+    const legacyCost = realTotal > 0 ? 0 : project?.direction?.costAccumulated ?? 0;
+    const totalWithLegacy = realTotal + legacyCost;
+
+    return {
+      budgetTarget,
+      estimatedTotal,
+      realTotal,
+      legacyCost,
+      totalWithLegacy,
+      available: budgetTarget - totalWithLegacy,
+    };
   },
 
   // Inventory

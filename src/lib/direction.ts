@@ -5,6 +5,11 @@ const toMinutes = (value: unknown) => {
   return Number.isFinite(minutes) ? Math.max(0, Math.floor(minutes)) : 0;
 };
 
+const toMoney = (value: unknown) => {
+  const amount = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(amount) ? Math.max(0, amount) : 0;
+};
+
 export const createDefaultDirection = (): Direction => ({
   out: [],
   why: '',
@@ -14,6 +19,8 @@ export const createDefaultDirection = (): Direction => ({
   in: [],
   timeTargetMinutes: 0,
   timeAccumulatedMinutes: 0,
+  budgetTarget: 0,
+  costAccumulated: 0,
 });
 
 export const normalizeDirection = (direction?: Partial<Direction> | null): Direction => ({
@@ -25,6 +32,8 @@ export const normalizeDirection = (direction?: Partial<Direction> | null): Direc
   in: Array.isArray(direction?.in) ? [...direction.in] : [],
   timeTargetMinutes: toMinutes(direction?.timeTargetMinutes),
   timeAccumulatedMinutes: toMinutes(direction?.timeAccumulatedMinutes),
+  budgetTarget: toMoney(direction?.budgetTarget),
+  costAccumulated: toMoney(direction?.costAccumulated),
 });
 
 export const formatMinutes = (minutes: number) => {

@@ -2,6 +2,7 @@ export type Priority = 'NOW' | 'Next1' | 'Next2' | 'Next3';
 export type ProjectType = 'De la vida' | 'Software' | 'Contenido' | 'Fisico';
 export type ProjectStatus = 'Idea' | 'Activo' | 'Bloqueado' | 'Terminado';
 export type ProjectPhotoStage = 'before' | 'after';
+export type AppMode = 'Creativo' | 'Produccion';
 
 export interface ProjectPhoto {
   id?: string;
@@ -26,6 +27,8 @@ export interface Direction {
   in: string[];
   timeTargetMinutes: number;
   timeAccumulatedMinutes: number;
+  budgetTarget: number;
+  costAccumulated: number;
 }
 
 export interface ProjectTimeRecord {
@@ -61,6 +64,7 @@ export interface Project {
   nextAction: string;
   direction: Direction;
   ownerId: string;
+  productionEnabled?: boolean;
 }
 
 export interface LogEntry {
@@ -73,6 +77,9 @@ export interface LogEntry {
 
 export type InventoryStatus = 'Consumido' | 'En uso' | 'Para usar' | 'Para mejorar' | 'Guardado';
 export type InventoryCategory = 'Material' | 'Herramienta' | 'Producto' | 'Contenido' | 'Software' | 'Insumo' | 'Otro';
+export type ProductionCostCategory = 'Materiales' | 'Herramientas' | 'Servicios' | 'Transporte' | 'Mano de obra' | 'Otros';
+export type ProductionQuoteStatus = 'Cotizada' | 'En compra' | 'Descartada';
+export type PurchasePlanStatus = 'Pendiente' | 'Comprado' | 'Cancelado';
 
 export interface InventoryItem {
   id: string;
@@ -80,6 +87,7 @@ export interface InventoryItem {
   description: string;
   category: InventoryCategory;
   quantity: number;
+  unitCost?: number;
   status: InventoryStatus;
   subStatus: string;
   sourceProjectId?: string;
@@ -91,4 +99,74 @@ export interface InventoryItem {
 export interface InventoryConfig {
   improvementOptions: string[];
   locationOptions: string[];
+}
+
+export interface ProductionQuote {
+  id: string;
+  provider: string;
+  itemName: string;
+  category: ProductionCostCategory;
+  quantity: number;
+  unitPrice: number;
+  contact: string;
+  notes: string;
+  status: ProductionQuoteStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PurchasePlanItem {
+  id: string;
+  itemName: string;
+  category: ProductionCostCategory;
+  quantity: number;
+  estimatedUnitCost: number;
+  provider?: string;
+  quoteId?: string;
+  status: PurchasePlanStatus;
+  createdAt: string;
+  updatedAt: string;
+  purchasedAt?: string;
+}
+
+export interface ProjectCostRecord {
+  id: string;
+  itemName: string;
+  category: ProductionCostCategory;
+  quantity: number;
+  unitCost: number;
+  total: number;
+  provider?: string;
+  purchaseId?: string;
+  createdAt: string;
+}
+
+export interface Provider {
+  id: string;
+  name: string;
+  category: ProductionCostCategory;
+  contact: string;
+  phone: string;
+  email: string;
+  website: string;
+  address: string;
+  notes: string;
+  archived: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectProductionData {
+  quotes: ProductionQuote[];
+  purchases: PurchasePlanItem[];
+  costs: ProjectCostRecord[];
+}
+
+export interface ProjectProductionSummary {
+  budgetTarget: number;
+  estimatedTotal: number;
+  realTotal: number;
+  legacyCost: number;
+  totalWithLegacy: number;
+  available: number;
 }

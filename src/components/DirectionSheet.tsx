@@ -10,6 +10,13 @@ import { toast } from 'sonner';
 import { InventoryItem } from '../types';
 import { formatMinutes, normalizeDirection } from '../lib/direction';
 
+const formatCurrency = (amount: number) =>
+  new Intl.NumberFormat('es-CL', {
+    style: 'currency',
+    currency: 'CLP',
+    maximumFractionDigits: 0,
+  }).format(Math.max(0, amount || 0));
+
 interface DirectionSheetProps {
   isOpen: boolean;
   onClose: () => void;
@@ -26,6 +33,7 @@ export default function DirectionSheet({ isOpen, onClose, projectId, onSave }: D
   const [isInventoryPickerOpen, setIsInventoryPickerOpen] = useState(false);
   const [pendingInventoryInput, setPendingInventoryInput] = useState<string | null>(null);
   const outInputRef = useRef<HTMLInputElement>(null);
+  const isProductionEnabled = project?.productionEnabled === true;
 
   useEffect(() => {
     if (isOpen) {
@@ -118,8 +126,34 @@ export default function DirectionSheet({ isOpen, onClose, projectId, onSave }: D
     }));
   };
 
+  const handleBudgetTargetChange = (value: string) => {
+    const parsed = Number(value);
+    setDirection((current) => ({
+      ...current,
+      budgetTarget: Number.isFinite(parsed) ? Math.max(0, parsed) : 0,
+    }));
+  };
+
   const timeTargetMinutes = direction.timeTargetMinutes ?? 0;
   const timeAccumulatedMinutes = direction.timeAccumulatedMinutes ?? 0;
+  const budgetTarget = direction.budgetTarget ?? 0;
+  const productionData = storage.getProjectProduction(projectId);
+  const productionCostTotal = productionData.costs.reduce((total, cost) => total + cost.total, 0);
+  const legacyCost = productionCostTotal > 0 ? 0 : direction.costAccumulated ?? 0;
+  const costAccumulated = productionCostTotal + legacyCost;
+  const budgetProgress = budgetTarget > 0 ? Math.min(100, (costAccumulated / budgetTarget) * 100) : 0;
+  const budgetState = budgetTarget <= 0
+    ? 'idle'
+    : costAccumulated > budgetTarget
+      ? 'over'
+      : costAccumulated / budgetTarget >= 0.8
+        ? 'near'
+        : 'safe';
+  const budgetMessage = budgetTarget <= 0
+    ? 'Define presupuesto para medir costos.'
+    : costAccumulated > budgetTarget
+      ? `Sobre presupuesto por ${formatCurrency(costAccumulated - budgetTarget)}.`
+      : `Disponible: ${formatCurrency(budgetTarget - costAccumulated)}.`;
   const timeProgress = timeTargetMinutes > 0
     ? Math.min(100, (timeAccumulatedMinutes / timeTargetMinutes) * 100)
     : 0;
@@ -404,6 +438,76 @@ export default function DirectionSheet({ isOpen, onClose, projectId, onSave }: D
                   >
                     Reiniciar consumo
                   </button>
+
+                  {isProductionEnabled && (
+                    <div className="mt-4 space-y-3 border-t border-emerald-500/20 pt-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="space-y-0.5">
+                          <p className="text-[8px] font-bold uppercase tracking-widest text-emerald-600">
+                            Presupuesto
+                          </p>
+                          <p className="text-sm font-bold text-[var(--text-main)] leading-none">
+                            {budgetTarget > 0 ? formatCurrency(budgetTarget) : 'Sin presupuesto'}
+                          </p>
+                        </div>
+
+                        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-right shadow-sm">
+                          <p className="text-[7px] font-bold uppercase tracking-[0.15em] text-emerald-700">
+                            Gastado
+                          </p>
+                          <p className="text-sm font-black leading-none text-[var(--text-main)]">
+                            {formatCurrency(costAccumulated)}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-2">
+                        <input
+                          type="number"
+                          min="0"
+                          step="1000"
+                          value={budgetTarget || ''}
+                          onChange={(event) => handleBudgetTargetChange(event.target.value)}
+                          placeholder="Presupuesto"
+                          className="input-clean !p-3 h-11 text-xs font-medium"
+                        />
+                      </div>
+
+                      {legacyCost > 0 && (
+                        <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-[8px] font-bold uppercase tracking-wider text-amber-700">
+                          Costo previo sin detalle: {formatCurrency(legacyCost)}
+                        </div>
+                      )}
+
+                      {budgetTarget > 0 && (
+                        <div className="space-y-1.5">
+                          <div className="h-1.5 overflow-hidden rounded-full border border-[var(--border-subtle)] bg-[var(--bg-app)]">
+                            <div
+                              className={cn(
+                                "h-full rounded-full transition-all",
+                                budgetState === 'over'
+                                  ? "bg-red-500"
+                                  : budgetState === 'near'
+                                    ? "bg-amber-500"
+                                    : "bg-emerald-500"
+                              )}
+                              style={{ width: `${budgetProgress}%` }}
+                            />
+                          </div>
+                          <div className={cn(
+                            "text-[8px] font-bold uppercase tracking-[0.12em] leading-tight",
+                            budgetState === 'over'
+                              ? "text-red-500"
+                              : budgetState === 'near'
+                                ? "text-amber-600"
+                                : "text-emerald-600"
+                          )}>
+                            {budgetMessage}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </DirectionBlock>
             </div>

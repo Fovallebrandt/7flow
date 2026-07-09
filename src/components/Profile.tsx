@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, Moon, Sun, Settings, LogOut, Clock, Download,
-  History as HistoryIcon, Target, CheckCircle2, User, X, Info
+  History as HistoryIcon, Target, CheckCircle2, User, X, Info, Building2
 } from 'lucide-react';
 import { useTheme } from '../lib/ThemeContext';
 import { storage } from '../lib/storage';
@@ -13,6 +13,7 @@ import SettingsPanel from './Settings';
 import { usePwaInstall } from '../lib/pwaInstall';
 import { formatMinutes } from '../lib/direction';
 import { formatDeltaMinutes } from '../lib/timeStats';
+import ProviderManager from './ProviderManager';
 
 export default function Profile() {
   const navigate = useNavigate();
@@ -24,6 +25,7 @@ export default function Profile() {
   const [timeStats, setTimeStats] = useState(storage.getProjectTimeSummary());
   const [activeTab, setActiveTab] = useState<'profile' | 'history'>('profile');
   const [showSettings, setShowSettings] = useState(false);
+  const [showProviderManager, setShowProviderManager] = useState(false);
   
   useEffect(() => {
     storage.syncProjectTimeStats();
@@ -204,7 +206,7 @@ export default function Profile() {
             <label className="label-caps px-2">Preferencias</label>
             
             <div className="card-clean overflow-hidden">
-              <button 
+              <button
                 onClick={toggleTheme}
                 className="w-full flex items-center justify-between p-5 hover:bg-[var(--accent)]/5 transition-colors group border-b border-[var(--border-subtle)]"
               >
@@ -228,7 +230,7 @@ export default function Profile() {
                 </div>
               </button>
 
-              <button 
+              <button
                 onClick={() => setShowSettings(true)}
                 className="w-full flex items-center justify-between p-5 hover:bg-[var(--accent)]/5 transition-colors group"
               >
@@ -239,6 +241,21 @@ export default function Profile() {
                   <div className="text-left">
                     <p className="text-sm font-bold text-[var(--text-main)]">Configuración</p>
                     <p className="text-[9px] text-[var(--text-dim)] uppercase font-bold tracking-wider">Ajustes de la aplicación</p>
+                  </div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => setShowProviderManager(true)}
+                className="w-full flex items-center justify-between p-5 hover:bg-[var(--accent)]/5 transition-colors group border-t border-[var(--border-subtle)]"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-xl bg-[var(--bg-app)] flex items-center justify-center text-[var(--text-dim)] group-hover:text-[var(--accent)] transition-colors">
+                    <Building2 size={18} />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-sm font-bold text-[var(--text-main)]">Mantenedor de proveedores</p>
+                    <p className="text-[9px] text-[var(--text-dim)] uppercase font-bold tracking-wider">Contactos para compras y cotizaciones</p>
                   </div>
                 </div>
               </button>
@@ -392,6 +409,11 @@ export default function Profile() {
           </>
         )}
       </AnimatePresence>
+
+      <ProviderManager
+        open={showProviderManager}
+        onClose={() => setShowProviderManager(false)}
+      />
     </div>
   );
 }

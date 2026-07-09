@@ -5,16 +5,17 @@ import { cn } from '../lib/utils';
 import LoadingSpinner from './LoadingSpinner';
 
 interface ProjectPhotoCardProps {
-  stage: ProjectPhotoStage;
+  stage: ProjectPhotoStage | 'process';
   title: string;
   subtitle: string;
   photo?: ProjectPhoto;
   loading?: boolean;
   onCapture: () => void;
   onDelete: () => void;
+  captureLabel?: string;
 }
 
-const STAGE_STYLES: Record<ProjectPhotoStage, {
+const STAGE_STYLES: Record<ProjectPhotoStage | 'process', {
   badge: string;
   accent: string;
   iconBg: string;
@@ -29,6 +30,11 @@ const STAGE_STYLES: Record<ProjectPhotoStage, {
     accent: 'from-emerald-500/20 via-emerald-400/10 to-transparent',
     iconBg: 'bg-emerald-500/10 text-emerald-700',
   },
+  process: {
+    badge: 'bg-sky-500/10 text-sky-700 border-sky-500/20',
+    accent: 'from-sky-500/20 via-sky-400/10 to-transparent',
+    iconBg: 'bg-sky-500/10 text-sky-700',
+  },
 };
 
 export default function ProjectPhotoCard({
@@ -39,6 +45,7 @@ export default function ProjectPhotoCard({
   loading = false,
   onCapture,
   onDelete,
+  captureLabel,
 }: ProjectPhotoCardProps) {
   const styles = STAGE_STYLES[stage];
   const hasPhoto = Boolean(photo);
@@ -120,7 +127,7 @@ export default function ProjectPhotoCard({
             ) : (
               <Camera size={14} strokeWidth={2.5} />
             )}
-            {hasPhoto ? 'Retomar' : 'Tomar foto'}
+            {captureLabel || (hasPhoto ? 'Retomar' : 'Tomar foto')}
           </button>
 
           {hasPhoto && (

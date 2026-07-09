@@ -4,6 +4,7 @@ export type ProjectStatus = 'Idea' | 'Activo' | 'Bloqueado' | 'Terminado';
 export type ProjectPhotoStage = 'before' | 'after';
 
 export interface ProjectPhoto {
+  id?: string;
   dataUrl: string;
   mimeType: string;
   fileName: string;
@@ -11,6 +12,10 @@ export interface ProjectPhoto {
   height: number;
   capturedAt: string; // ISO String
 }
+
+export type ProjectPhotos = Partial<Record<ProjectPhotoStage, ProjectPhoto>> & {
+  process?: ProjectPhoto[];
+};
 
 export interface Direction {
   out: string[];
@@ -67,15 +72,18 @@ export interface LogEntry {
 }
 
 export type InventoryStatus = 'Consumido' | 'En uso' | 'Para usar' | 'Para mejorar' | 'Guardado';
+export type InventoryCategory = 'Material' | 'Herramienta' | 'Producto' | 'Contenido' | 'Software' | 'Insumo' | 'Otro';
 
 export interface InventoryItem {
   id: string;
   name: string;
   description: string;
+  category: InventoryCategory;
+  quantity: number;
   status: InventoryStatus;
   subStatus: string;
   sourceProjectId?: string;
-  projectPhotos?: Partial<Record<ProjectPhotoStage, ProjectPhoto>>;
+  projectPhotos?: ProjectPhotos;
   createdAt: string; // ISO String
   updatedAt: string; // ISO String
 }

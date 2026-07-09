@@ -163,6 +163,8 @@ export default function DirectionSheet({ isOpen, onClose, projectId, onSave }: D
     storage.addInventoryItem({
       name: pendingInventoryInput,
       description: `Insumo del proyecto: ${project?.name || '7Flow'}`,
+      category: 'Insumo',
+      quantity: 1,
       status: 'Para usar',
       subStatus: 'Sin abrir',
       sourceProjectId: projectId

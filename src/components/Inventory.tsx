@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { storage } from '../lib/storage';
-import { InventoryItem, InventoryStatus, InventoryConfig, ProjectPhotoStage } from '../types';
+import { InventoryItem, InventoryStatus, InventoryConfig, ProjectPhotoStage, InventoryCategory } from '../types';
 import { 
   Package, 
   Search, 
@@ -33,6 +33,7 @@ const INVENTORY_STATUS_ORDER: InventoryStatus[] = [
 ];
 
 const PARA_USAR_OPTIONS = ['Sin abrir', 'Listo para usar', 'Reservado'];
+const INVENTORY_CATEGORY_OPTIONS: InventoryCategory[] = ['Material', 'Herramienta', 'Producto', 'Contenido', 'Software', 'Insumo', 'Otro'];
 
 export default function Inventory() {
   const [items, setItems] = useState<InventoryItem[]>(storage.getInventory());
@@ -61,7 +62,8 @@ export default function Inventory() {
   const filteredItems = items.filter(item => 
     item.status === activeTab && 
     (item.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-     item.description.toLowerCase().includes(searchQuery.toLowerCase()))
+     item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+     item.category.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   const handleUpdateStatus = (id: string, status: InventoryStatus, subStatus: string) => {
@@ -251,6 +253,8 @@ const InventoryCard: React.FC<InventoryCardProps> = ({
     'Guardado': 'bg-purple-500'
   };
   const photoStages: ProjectPhotoStage[] = ['before', 'after'];
+  const linkedProcessPhotos = item.projectPhotos?.process ?? [];
+  const hasLinkedPhotos = Boolean(item.projectPhotos?.before || item.projectPhotos?.after || linkedProcessPhotos.length > 0);
 
   useEffect(() => {
     if (!showActions) return;
@@ -324,6 +328,14 @@ const InventoryCard: React.FC<InventoryCardProps> = ({
               </span>
             </div>
             <h3 className="text-lg font-bold text-[var(--text-main)] tracking-tight">{item.name}</h3>
+            <div className="flex flex-wrap gap-2 pt-1">
+              <span className="rounded-full border border-[var(--border-subtle)] bg-[var(--bg-app)] px-2.5 py-1 text-[8px] font-bold uppercase tracking-widest text-[var(--text-dim)]">
+                {item.category}
+              </span>
+              <span className="rounded-full border border-[var(--border-subtle)] bg-[var(--bg-app)] px-2.5 py-1 text-[8px] font-bold uppercase tracking-widest text-[var(--text-main)]">
+                Cant. {item.quantity}
+              </span>
+            </div>
           </div>
           <div className="flex gap-1">
             <button
@@ -371,7 +383,7 @@ const InventoryCard: React.FC<InventoryCardProps> = ({
                 </span>
               </div>
 
-              {(item.projectPhotos?.before || item.projectPhotos?.after) && (
+              {hasLinkedPhotos && (
                 <div className="space-y-2 pt-1">
                   <span className="text-[9px] font-bold uppercase tracking-widest text-[var(--text-dim)]">
                     Fotos vinculadas
@@ -400,6 +412,20 @@ const InventoryCard: React.FC<InventoryCardProps> = ({
                         </div>
                       );
                     })}
+                    {linkedProcessPhotos.map((photo, index) => (
+                      <div key={photo.id || `${photo.capturedAt}-${index}`} className="relative overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] aspect-[4/3]">
+                        <img
+                          src={photo.dataUrl}
+                          alt={`Foto de proceso ${index + 1}`}
+                          className="h-full w-full object-cover"
+                          loading="lazy"
+                          decoding="async"
+                        />
+                        <div className="absolute left-2 top-2 rounded-full bg-black/60 px-2 py-0.5 text-[7px] font-bold uppercase tracking-[0.15em] text-white backdrop-blur-sm">
+                          Proceso {linkedProcessPhotos.length - index}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
@@ -489,6 +515,8 @@ function getOptionsForStatus(status: InventoryStatus, config: InventoryConfig) {
 function InventoryFormModal({ item, config, onClose, onSave }: { item: InventoryItem | null, config: InventoryConfig, onClose: () => void, onSave: () => void }) {
   const [name, setName] = useState(item?.name || '');
   const [description, setDescription] = useState(item?.description || '');
+  const [category, setCategory] = useState<InventoryCategory>(item?.category || 'Otro');
+  const [quantity, setQuantity] = useState(String(item?.quantity || 1));
   const [status, setStatus] = useState<InventoryStatus>(item?.status || 'En uso');
   const [subStatus, setSubStatus] = useState(item?.subStatus || '');
 
@@ -503,12 +531,30 @@ function InventoryFormModal({ item, config, onClose, onSave }: { item: Inventory
 
   const handleSave = () => {
     if (!name.trim()) return toast.error('El nombre es obligatorio');
+    const parsedQuantity = Number(quantity);
+    if (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0) {
+      return toast.error('La cantidad debe ser mayor a cero');
+    }
     
     if (item) {
-      storage.updateInventoryItem(item.id, { name, description, status, subStatus });
+      storage.updateInventoryItem(item.id, {
+        name,
+        description,
+        category,
+        quantity: parsedQuantity,
+        status,
+        subStatus,
+      });
       toast.success('Item actualizado');
     } else {
-      storage.addInventoryItem({ name, description, status, subStatus });
+      storage.addInventoryItem({
+        name,
+        description,
+        category,
+        quantity: parsedQuantity,
+        status,
+        subStatus,
+      });
       toast.success('Item creado');
     }
     onSave();
@@ -550,6 +596,32 @@ function InventoryFormModal({ item, config, onClose, onSave }: { item: Inventory
               placeholder="Detalles adicionales..."
               className="input-clean !p-4 text-sm font-medium h-24 resize-none"
             />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="label-caps">Tipo</label>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value as InventoryCategory)}
+                className="input-clean !p-4 text-[10px] font-bold uppercase tracking-widest appearance-none"
+              >
+                {INVENTORY_CATEGORY_OPTIONS.map((option) => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <label className="label-caps">Cantidad</label>
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={quantity}
+                onChange={(e) => setQuantity(e.target.value)}
+                className="input-clean !p-4 text-sm font-medium"
+              />
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">

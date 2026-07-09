@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { User, Package, Database, Trash2, Download, Upload, Save, Plus, X, Settings as SettingsIcon } from 'lucide-react';
 import { storage, UserProfile } from '../lib/storage';
-import { ProjectPhoto, ProjectPhotoStage, ProjectTimeRecord } from '../types';
+import { ProjectTimeRecord } from '../types';
 import { toast } from 'sonner';
 import ConfirmDialog from './ConfirmDialog';
 
@@ -46,25 +46,12 @@ export default function Settings({ onClose }: { onClose?: () => void }) {
   };
 
   const handleExport = () => {
-    const photos = storage.getProjects().reduce((acc, project) => {
-      const before = storage.getProjectPhoto(project.id, 'before');
-      const after = storage.getProjectPhoto(project.id, 'after');
-
-      if (before || after) {
-        acc[project.id] = {};
-        if (before) acc[project.id]!.before = before;
-        if (after) acc[project.id]!.after = after;
-      }
-
-      return acc;
-    }, {} as Record<string, Partial<Record<ProjectPhotoStage, ProjectPhoto>>>);
-
     const data = {
       projects: storage.getProjects(),
       inventory: storage.getInventory(),
       config: storage.getInventoryConfig(),
       user: storage.getUserProfile(),
-      photos,
+      photos: storage.getProjectPhotos(),
       timeStats: storage.getProjectTimeStats(),
       logs: storage.getProjects().reduce((acc: any, p) => {
         acc[p.id] = storage.getLogs(p.id);

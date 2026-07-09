@@ -11,12 +11,16 @@ interface ProjectPhotoSheetProps {
   reminderMode?: boolean;
   beforePhoto?: ProjectPhoto;
   afterPhoto?: ProjectPhoto;
+  processPhotos?: ProjectPhoto[];
   beforeLoading?: boolean;
   afterLoading?: boolean;
+  processLoading?: boolean;
   onCaptureBefore: () => void;
   onCaptureAfter: () => void;
+  onCaptureProcess: () => void;
   onDeleteBefore: () => void;
   onDeleteAfter: () => void;
+  onDeleteProcess: (photoId: string) => void;
 }
 
 export default function ProjectPhotoSheet({
@@ -26,14 +30,18 @@ export default function ProjectPhotoSheet({
   reminderMode = false,
   beforePhoto,
   afterPhoto,
+  processPhotos = [],
   beforeLoading = false,
   afterLoading = false,
+  processLoading = false,
   onCaptureBefore,
   onCaptureAfter,
+  onCaptureProcess,
   onDeleteBefore,
   onDeleteAfter,
+  onDeleteProcess,
 }: ProjectPhotoSheetProps) {
-  const photoCount = (beforePhoto ? 1 : 0) + (afterPhoto ? 1 : 0);
+  const photoCount = (beforePhoto ? 1 : 0) + (afterPhoto ? 1 : 0) + processPhotos.length;
 
   return (
     <AnimatePresence>
@@ -96,7 +104,7 @@ export default function ProjectPhotoSheet({
                   </div>
                   <div className="flex items-center gap-2 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 py-1.5 text-[8px] font-bold uppercase tracking-[0.15em] text-[var(--text-dim)]">
                     <Camera size={10} strokeWidth={2.5} />
-                    {`${photoCount}/2`}
+                    {photoCount}
                   </div>
                 </div>
               </div>
@@ -146,6 +154,50 @@ export default function ProjectPhotoSheet({
                   </>
                 )}
               </div>
+
+              <div className="rounded-3xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 shadow-lg shadow-black/5">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="space-y-1">
+                    <p className="text-sm font-bold text-[var(--text-main)]">Fotos de proceso</p>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-dim)]">
+                      Agrega todas las capturas intermedias que necesites
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onCaptureProcess}
+                    disabled={processLoading}
+                    className="rounded-xl bg-[var(--accent)] px-4 py-3 text-[8px] font-bold uppercase tracking-[0.18em] text-[var(--accent-foreground)] transition-all hover:opacity-90 active:scale-95 disabled:opacity-50"
+                  >
+                    Agregar
+                  </button>
+                </div>
+              </div>
+
+              {processPhotos.length > 0 ? (
+                <div className="grid grid-cols-1 gap-4">
+                  {processPhotos.map((photo, index) => (
+                    <div key={photo.id || `${photo.capturedAt}-${index}`}>
+                      <ProjectPhotoCard
+                        stage="process"
+                        title={`Proceso ${processPhotos.length - index}`}
+                        subtitle={new Date(photo.capturedAt).toLocaleString('es-ES')}
+                        photo={photo}
+                        loading={processLoading}
+                        onCapture={onCaptureProcess}
+                        onDelete={() => photo.id && onDeleteProcess(photo.id)}
+                        captureLabel="Agregar otra"
+                      />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-3xl border border-dashed border-[var(--border-subtle)] bg-[var(--bg-card)] p-6 text-center">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-dim)]">
+                    Aún no hay fotos de proceso
+                  </p>
+                </div>
+              )}
 
               <div className="rounded-3xl border border-dashed border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 text-[10px] font-medium leading-relaxed text-[var(--text-dim)]">
                 Las fotos quedan guardadas en este dispositivo y también viajan en el export/import de datos.

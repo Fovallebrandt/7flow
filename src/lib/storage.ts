@@ -1,10 +1,11 @@
-import { Project, LogEntry, InventoryItem, InventoryConfig, ProjectPhoto, ProjectPhotoStage, ProjectTimeRecord, ProjectTimeSummary } from '../types';
+import { Project, LogEntry, InventoryItem, InventoryCategory, InventoryConfig, ProjectPhoto, ProjectPhotoStage, ProjectPhotos, ProjectTimeRecord, ProjectTimeSummary } from '../types';
 import { normalizeDirection } from './direction';
 import { buildProjectTimeRecord, findProjectCompletionTimestamp, summarizeProjectTimeRecords } from './timeStats';
 
 const PROJECTS_KEY = '7flow_projects';
 const LOGS_KEY_PREFIX = '7flow_logs_';
 const PROJECT_PHOTO_KEY_PREFIX = '7flow_project_photo_';
+const PROJECT_PROCESS_PHOTOS_KEY_PREFIX = '7flow_project_process_photos_';
 const PROJECT_TIME_STATS_KEY = '7flow_project_time_stats';
 const INVENTORY_KEY = '7flow_inventory';
 const INVENTORY_CONFIG_KEY = '7flow_inventory_config';
@@ -24,6 +25,14 @@ const DEFAULT_CONFIG: InventoryConfig = {
   improvementOptions: ['Para pintar', 'Para lijar', 'Para pulir', 'Para QA'],
   locationOptions: ['En la casa', 'En la bodega', 'En la cabaña']
 };
+
+const INVENTORY_CATEGORIES: InventoryCategory[] = ['Material', 'Herramienta', 'Producto', 'Contenido', 'Software', 'Insumo', 'Otro'];
+
+const normalizeInventoryItem = (item: InventoryItem): InventoryItem => ({
+  ...item,
+  category: INVENTORY_CATEGORIES.includes(item.category) ? item.category : 'Otro',
+  quantity: Number.isFinite(item.quantity) && item.quantity > 0 ? item.quantity : 1,
+});
 
 export const storage = {
   getUserProfile: (): UserProfile => {
@@ -83,6 +92,27 @@ export const storage = {
     localStorage.removeItem(`${PROJECT_PHOTO_KEY_PREFIX}${projectId}_${stage}`);
   },
 
+  getProjectProcessPhotos: (projectId: string): ProjectPhoto[] => {
+    const data = localStorage.getItem(`${PROJECT_PROCESS_PHOTOS_KEY_PREFIX}${projectId}`);
+    return data ? JSON.parse(data) : [];
+  },
+
+  saveProjectProcessPhotos: (projectId: string, photos: ProjectPhoto[]) => {
+    localStorage.setItem(`${PROJECT_PROCESS_PHOTOS_KEY_PREFIX}${projectId}`, JSON.stringify(photos));
+  },
+
+  addProjectProcessPhoto: (projectId: string, photo: ProjectPhoto) => {
+    const photos = storage.getProjectProcessPhotos(projectId);
+    const newPhoto = { ...photo, id: photo.id || Math.random().toString(36).substr(2, 9) };
+    storage.saveProjectProcessPhotos(projectId, [newPhoto, ...photos]);
+    return newPhoto.id;
+  },
+
+  deleteProjectProcessPhoto: (projectId: string, photoId: string) => {
+    const photos = storage.getProjectProcessPhotos(projectId);
+    storage.saveProjectProcessPhotos(projectId, photos.filter((photo) => photo.id !== photoId));
+  },
+
   getProjectTimeStats: (): ProjectTimeRecord[] => {
     const data = localStorage.getItem(PROJECT_TIME_STATS_KEY);
     return data ? JSON.parse(data) : [];
@@ -131,6 +161,7 @@ export const storage = {
     const photos = {
       before: storage.getProjectPhoto(projectId, 'before'),
       after: storage.getProjectPhoto(projectId, 'after'),
+      process: storage.getProjectProcessPhotos(projectId),
     };
 
     const items = storage.getInventory();
@@ -140,7 +171,7 @@ export const storage = {
       if (item.sourceProjectId !== projectId) return item;
 
       changed = true;
-      const hasPhotos = Boolean(photos.before || photos.after);
+      const hasPhotos = Boolean(photos.before || photos.after || photos.process.length > 0);
 
       if (!hasPhotos) {
         const { projectPhotos, ...rest } = item;
@@ -152,6 +183,7 @@ export const storage = {
         projectPhotos: {
           ...(photos.before ? { before: photos.before } : {}),
           ...(photos.after ? { after: photos.after } : {}),
+          ...(photos.process.length > 0 ? { process: photos.process } : {}),
         },
       };
     });
@@ -161,7 +193,7 @@ export const storage = {
     }
   },
 
-  saveProjectPhotos: (photos: Record<string, Partial<Record<ProjectPhotoStage, ProjectPhoto>>>) => {
+  saveProjectPhotos: (photos: Record<string, ProjectPhotos>) => {
     Object.entries(photos).forEach(([projectId, stages]) => {
       (['before', 'after'] as ProjectPhotoStage[]).forEach((stage) => {
         const photo = stages[stage];
@@ -171,19 +203,23 @@ export const storage = {
           storage.deleteProjectPhoto(projectId, stage);
         }
       });
+
+      storage.saveProjectProcessPhotos(projectId, Array.isArray(stages.process) ? stages.process : []);
     });
   },
 
-  getProjectPhotos: (): Record<string, Partial<Record<ProjectPhotoStage, ProjectPhoto>>> => {
-    const photos: Record<string, Partial<Record<ProjectPhotoStage, ProjectPhoto>>> = {};
+  getProjectPhotos: (): Record<string, ProjectPhotos> => {
+    const photos: Record<string, ProjectPhotos> = {};
     storage.getProjects().forEach((project) => {
       const before = storage.getProjectPhoto(project.id, 'before');
       const after = storage.getProjectPhoto(project.id, 'after');
+      const process = storage.getProjectProcessPhotos(project.id);
 
-      if (before || after) {
+      if (before || after || process.length > 0) {
         photos[project.id] = {};
         if (before) photos[project.id]!.before = before;
         if (after) photos[project.id]!.after = after;
+        if (process.length > 0) photos[project.id]!.process = process;
       }
     });
 
@@ -216,7 +252,8 @@ export const storage = {
   // Inventory
   getInventory: (): InventoryItem[] => {
     const data = localStorage.getItem(INVENTORY_KEY);
-    return data ? JSON.parse(data) : [];
+    const items = data ? JSON.parse(data) : [];
+    return items.map(normalizeInventoryItem);
   },
 
   saveInventory: (items: InventoryItem[]) => {
@@ -227,7 +264,7 @@ export const storage = {
     const items = storage.getInventory();
     const id = Math.random().toString(36).substr(2, 9);
     const now = new Date().toISOString();
-    const newItem = { ...item, id, createdAt: now, updatedAt: now };
+    const newItem = normalizeInventoryItem({ ...item, id, createdAt: now, updatedAt: now });
     storage.saveInventory([newItem, ...items]);
     return id;
   },

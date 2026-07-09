@@ -30,13 +30,17 @@ export default function ProjectDetail() {
   const [beforePhoto, setBeforePhoto] = useState<ProjectPhoto | undefined>(id ? storage.getProjectPhoto(id, 'before') : undefined);
   const [afterPhoto, setAfterPhoto] = useState<ProjectPhoto | undefined>(id ? storage.getProjectPhoto(id, 'after') : undefined);
   const [photoLoadingStage, setPhotoLoadingStage] = useState<ProjectPhotoStage | null>(null);
+  const [processPhotos, setProcessPhotos] = useState<ProjectPhoto[]>(id ? storage.getProjectProcessPhotos(id) : []);
+  const [processPhotoLoading, setProcessPhotoLoading] = useState(false);
   const beforePhotoInputRef = useRef<HTMLInputElement>(null);
   const afterPhotoInputRef = useRef<HTMLInputElement>(null);
-  const photoCount = (beforePhoto ? 1 : 0) + (afterPhoto ? 1 : 0);
+  const processPhotoInputRef = useRef<HTMLInputElement>(null);
+  const photoCount = (beforePhoto ? 1 : 0) + (afterPhoto ? 1 : 0) + processPhotos.length;
 
   const syncPhotos = (projectId: string) => {
     setBeforePhoto(storage.getProjectPhoto(projectId, 'before'));
     setAfterPhoto(storage.getProjectPhoto(projectId, 'after'));
+    setProcessPhotos(storage.getProjectProcessPhotos(projectId));
   };
 
   useEffect(() => {
@@ -179,6 +183,35 @@ export default function ProjectDetail() {
     }
   };
 
+  const handleProcessPhotoChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = '';
+
+    if (!id || !file) return;
+
+    setProcessPhotoLoading(true);
+
+    try {
+      const photo = await fileToProjectPhoto(file);
+      storage.addProjectProcessPhoto(id, photo);
+      storage.syncProjectPhotosToInventory(id);
+      syncPhotos(id);
+      toast.success('Foto de proceso guardada');
+    } catch (error) {
+      console.error('Error saving process photo:', error);
+      toast.error('No se pudo guardar la foto', {
+        description:
+          error instanceof DOMException && error.name === 'QuotaExceededError'
+            ? 'La imagen es demasiado grande para este navegador. Prueba con otra más pequeña.'
+            : error instanceof Error
+              ? error.message
+              : 'Inténtalo de nuevo con otra imagen.',
+      });
+    } finally {
+      setProcessPhotoLoading(false);
+    }
+  };
+
   const handleDeletePhoto = (stage: ProjectPhotoStage) => {
     if (!id) return;
 
@@ -186,6 +219,15 @@ export default function ProjectDetail() {
     storage.syncProjectPhotosToInventory(id);
     syncPhotos(id);
     toast.success(stage === 'before' ? 'Foto de antes eliminada' : 'Foto de después eliminada');
+  };
+
+  const handleDeleteProcessPhoto = (photoId: string) => {
+    if (!id) return;
+
+    storage.deleteProjectProcessPhoto(id, photoId);
+    storage.syncProjectPhotosToInventory(id);
+    syncPhotos(id);
+    toast.success('Foto de proceso eliminada');
   };
 
   const handlePhotoSheetClose = () => {
@@ -261,6 +303,8 @@ export default function ProjectDetail() {
           storage.addInventoryItem({
             name: outName,
             description: `Resultado del proyecto: ${project.name}`,
+            category: project.type === 'Software' || project.type === 'Contenido' ? project.type : 'Producto',
+            quantity: 1,
             status: 'Guardado',
             subStatus: 'En la casa',
             sourceProjectId: id
@@ -301,6 +345,8 @@ export default function ProjectDetail() {
     storage.addInventoryItem({
       name: outputName,
       description: `Resultado del proyecto: ${project.name}`,
+      category: project.type === 'Software' || project.type === 'Contenido' ? project.type : 'Producto',
+      quantity: 1,
       status: 'Guardado',
       subStatus: 'En la casa',
       sourceProjectId: id
@@ -331,12 +377,16 @@ export default function ProjectDetail() {
         reminderMode={photoReminderMode}
         beforePhoto={beforePhoto}
         afterPhoto={afterPhoto}
+        processPhotos={processPhotos}
         beforeLoading={photoLoadingStage === 'before'}
         afterLoading={photoLoadingStage === 'after'}
+        processLoading={processPhotoLoading}
         onCaptureBefore={() => beforePhotoInputRef.current?.click()}
         onCaptureAfter={() => afterPhotoInputRef.current?.click()}
+        onCaptureProcess={() => processPhotoInputRef.current?.click()}
         onDeleteBefore={() => handleDeletePhoto('before')}
         onDeleteAfter={() => handleDeletePhoto('after')}
+        onDeleteProcess={handleDeleteProcessPhoto}
       />
 
       {/* Finished Modal */}
@@ -604,6 +654,14 @@ export default function ProjectDetail() {
         capture="environment"
         className="hidden"
         onChange={(event) => void handlePhotoChange('after', event)}
+      />
+      <input
+        ref={processPhotoInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(event) => void handleProcessPhotoChange(event)}
       />
 
       {/* Log / Update Section */}

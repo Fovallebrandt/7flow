@@ -3,6 +3,8 @@ export type ProjectType = 'De la vida' | 'Software' | 'Contenido' | 'Fisico';
 export type ProjectStatus = 'Idea' | 'Activo' | 'Bloqueado' | 'Terminado';
 export type ProjectPhotoStage = 'before' | 'after';
 export type AppMode = 'Creativo' | 'Produccion';
+export type TaskStatus = 'Pendiente' | 'En progreso' | 'Hecha' | 'Cancelada';
+export type TaskPriority = 'Hoy' | 'Pronto' | 'Algún día';
 
 export interface ProjectPhoto {
   id?: string;
@@ -73,6 +75,19 @@ export interface LogEntry {
   timestamp: string; // ISO String
   completedAction?: string;
   newNextAction?: string;
+}
+
+export interface Task {
+  id: string;
+  title: string;
+  notes: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  projectId?: string;
+  createdAt: string; // ISO String
+  updatedAt: string; // ISO String
+  dueAt?: string;
+  completedAt?: string;
 }
 
 export type InventoryStatus = 'Consumido' | 'En uso' | 'Para usar' | 'Para mejorar' | 'Guardado';

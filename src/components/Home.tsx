@@ -1,14 +1,20 @@
-import React, { useEffect, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { storage } from '../lib/storage';
 import { Project } from '../types';
 import { useNavigate } from 'react-router-dom';
-import { ChevronRight, Target, Clock, AlertCircle, CheckCircle2, Plus, AlertTriangle } from 'lucide-react';
+import { ChevronRight, Target, Clock, AlertCircle, CheckCircle2, Plus, AlertTriangle, ListChecks } from 'lucide-react';
 import { cn } from '../lib/utils';
 import LoadingSpinner from './LoadingSpinner';
+import PriorityReviewSheet from './PriorityReviewSheet';
+
+const TasksSheet = lazy(() => import('./Tasks').then((module) => ({ default: module.TasksSheet })));
 
 export default function Home() {
   const [projects, setProjects] = useState<Project[]>(storage.getProjects());
   const [loading, setLoading] = useState(false);
+  const [isPriorityReviewOpen, setIsPriorityReviewOpen] = useState(false);
+  const [isTasksOpen, setIsTasksOpen] = useState(false);
+  const [startTaskCreate, setStartTaskCreate] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -58,11 +64,51 @@ export default function Home() {
   }
 
   return (
-    <div className="space-y-8 pb-24">
+    <div className="space-y-6 pb-24">
+      <div className="px-2">
+        <div className="grid grid-cols-3 gap-2">
+          <button
+            type="button"
+            onClick={() => setIsTasksOpen(true)}
+            className="flex h-14 items-center justify-center rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] text-center shadow-sm transition-all hover:border-[var(--border-active)] active:scale-[0.98]"
+            aria-label="Abrir tareas"
+          >
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
+              <ListChecks size={18} strokeWidth={2.5} />
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsPriorityReviewOpen(true)}
+            className="flex h-14 items-center justify-center rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] text-center shadow-sm transition-all hover:border-[var(--border-active)] active:scale-[0.98]"
+            aria-label="Abrir prioridades"
+          >
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--accent)]/10 text-[var(--accent)]">
+              <Target size={18} strokeWidth={2.5} />
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setStartTaskCreate(true);
+              setIsTasksOpen(true);
+            }}
+            className="flex h-14 items-center justify-center rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] text-center shadow-sm transition-all hover:border-[var(--border-active)] active:scale-[0.98]"
+            aria-label="Agregar tarea"
+          >
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--bg-app)] text-[var(--text-main)]">
+              <Plus size={18} strokeWidth={2.5} />
+            </div>
+          </button>
+        </div>
+      </div>
+
       {/* Stagnant Warning */}
       {stagnantProjects.length > 0 && (
-        <div className={cn("mx-2 p-4 rounded-2xl flex items-center gap-4 animate-in fade-in slide-in-from-top-4 duration-500 border", bannerInfo.bg, bannerInfo.border)}>
-          <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center text-white shrink-0 shadow-lg", bannerInfo.iconColor)}>
+        <div className={cn("mx-2 p-3 rounded-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-4 duration-500 border", bannerInfo.bg, bannerInfo.border)}>
+          <div className={cn("w-9 h-9 rounded-lg flex items-center justify-center text-white shrink-0 shadow-lg", bannerInfo.iconColor)}>
             <AlertTriangle size={20} strokeWidth={2.5} />
           </div>
           <div className="space-y-0.5">
@@ -86,7 +132,7 @@ export default function Home() {
         {nowProject ? (
           <div
             onClick={() => navigate(`/project/${nowProject.id}`)}
-            className="group relative card-clean p-5 cursor-pointer hover:shadow-xl hover:shadow-black/5 transition-all active:scale-[0.98]"
+            className="group relative card-clean p-4 cursor-pointer hover:shadow-xl hover:shadow-black/5 transition-all active:scale-[0.98]"
           >
             <div className="flex justify-between items-start mb-4">
               <div className="space-y-0.5">
@@ -115,7 +161,7 @@ export default function Home() {
             </div>
 
             <div className="space-y-4">
-              <div className="bg-[var(--bg-app)] p-4 rounded-xl border border-[var(--border-subtle)] shadow-inner">
+              <div className="bg-[var(--bg-app)] p-3 rounded-lg border border-[var(--border-subtle)] shadow-inner">
                 <p className="label-caps !ml-0 mb-1">Siguiente Acción</p>
                 <p className="text-base font-medium text-[var(--text-main)] leading-relaxed">
                   {nowProject.nextAction || 'Define el siguiente paso...'}
@@ -144,10 +190,10 @@ export default function Home() {
                 </div>
                 
                 <div className="grid grid-cols-1 gap-2">
-                  {nextProjects.slice(0, 3).map((p, idx) => (
+                  {nextProjects.slice(0, 3).map((p) => (
                     <div
                       key={p.id}
-                      className="flex items-center justify-between bg-[var(--bg-card)] border border-[var(--border-subtle)] p-4 rounded-[16px] group hover:border-[var(--border-active)] transition-all"
+                      className="flex items-center justify-between bg-[var(--bg-card)] border border-[var(--border-subtle)] p-3 rounded-xl group hover:border-[var(--border-active)] transition-all"
                     >
                       <div className="flex items-center gap-4">
                         <div className={cn(
@@ -208,11 +254,11 @@ export default function Home() {
         </div>
         <div className="space-y-2">
           {nextProjects.length > 0 ? (
-            nextProjects.map((p, idx) => (
+            nextProjects.map((p) => (
               <div
                 key={p.id}
                 onClick={() => navigate(`/project/${p.id}`)}
-                className="flex items-center justify-between bg-[var(--bg-card)] border border-[var(--border-subtle)] p-4 rounded-[16px] cursor-pointer hover:shadow-lg hover:shadow-black/5 hover:border-[var(--border-active)] transition-all active:scale-[0.99] group"
+                className="flex items-center justify-between bg-[var(--bg-card)] border border-[var(--border-subtle)] p-3 rounded-xl cursor-pointer hover:shadow-lg hover:shadow-black/5 hover:border-[var(--border-active)] transition-all active:scale-[0.99] group"
               >
                 <div className="flex items-center gap-4">
                   <div className={cn(
@@ -266,6 +312,25 @@ export default function Home() {
             ))}
           </div>
         </section>
+      )}
+
+      <PriorityReviewSheet
+        open={isPriorityReviewOpen}
+        projects={projects}
+        onClose={() => setIsPriorityReviewOpen(false)}
+        onProjectsChange={setProjects}
+      />
+      {isTasksOpen && (
+        <Suspense fallback={null}>
+          <TasksSheet
+            open={isTasksOpen}
+            startCreate={startTaskCreate}
+            onClose={() => {
+              setIsTasksOpen(false);
+              setStartTaskCreate(false);
+            }}
+          />
+        </Suspense>
       )}
     </div>
   );

@@ -2,8 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { storage } from '../lib/storage';
 import { fileToProjectPhoto } from '../lib/image';
-import { Project, LogEntry, ProjectStatus, Priority, ProjectPhoto, ProjectPhotoStage } from '../types';
-import { ArrowLeft, Edit3, CheckCircle2, Clock, History, Send, Target, ChevronRight, Check, Package as PackageIcon, AlertTriangle, Camera, Factory } from 'lucide-react';
+import { Project, LogEntry, ProjectStatus, Priority, ProjectPhoto, ProjectPhotoStage, Task } from '../types';
+import { ArrowLeft, Edit3, CheckCircle2, Clock, History, Send, Target, ChevronRight, Check, Package as PackageIcon, AlertTriangle, Camera, Factory, ListChecks, Plus, Circle } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { formatMinutes } from '../lib/direction';
 import { toast } from 'sonner';
@@ -11,6 +11,7 @@ import LoadingSpinner from './LoadingSpinner';
 import DirectionSheet from './DirectionSheet';
 import ProjectPhotoSheet from './ProjectPhotoSheet';
 import ProjectProductionPanel from './ProjectProductionPanel';
+import { TaskEditorSheet } from './Tasks';
 
 const formatCurrency = (amount: number) =>
   new Intl.NumberFormat('es-CL', {
@@ -32,6 +33,8 @@ export default function ProjectDetail() {
   const [isDirectionOpen, setIsDirectionOpen] = useState(false);
   const [isPhotoOpen, setIsPhotoOpen] = useState(false);
   const [isProductionOpen, setIsProductionOpen] = useState(false);
+  const [isTaskSheetOpen, setIsTaskSheetOpen] = useState(false);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [photoReminderMode, setPhotoReminderMode] = useState(false);
   const [pendingFinishOptions, setPendingFinishOptions] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -40,6 +43,7 @@ export default function ProjectDetail() {
   const [afterPhoto, setAfterPhoto] = useState<ProjectPhoto | undefined>(id ? storage.getProjectPhoto(id, 'after') : undefined);
   const [photoLoadingStage, setPhotoLoadingStage] = useState<ProjectPhotoStage | null>(null);
   const [processPhotos, setProcessPhotos] = useState<ProjectPhoto[]>(id ? storage.getProjectProcessPhotos(id) : []);
+  const [projectTasks, setProjectTasks] = useState<Task[]>(id ? storage.getProjectTasks(id) : []);
   const [processPhotoLoading, setProcessPhotoLoading] = useState(false);
   const beforePhotoInputRef = useRef<HTMLInputElement>(null);
   const afterPhotoInputRef = useRef<HTMLInputElement>(null);
@@ -53,6 +57,10 @@ export default function ProjectDetail() {
     setProcessPhotos(storage.getProjectProcessPhotos(projectId));
   };
 
+  const refreshProjectTasks = (projectId: string) => {
+    setProjectTasks(storage.getProjectTasks(projectId));
+  };
+
   useEffect(() => {
     if (!id) return;
 
@@ -61,6 +69,7 @@ export default function ProjectDetail() {
       setProject(p);
       setNewNextAction(p.nextAction || '');
       setLogs(storage.getLogs(id));
+      refreshProjectTasks(id);
       
       // Check stagnation days
       const days = storage.getProjectStagnationDays(id);
@@ -263,6 +272,25 @@ export default function ProjectDetail() {
     }
   };
 
+  const openNewTask = () => {
+    setEditingTask(null);
+    setIsTaskSheetOpen(true);
+  };
+
+  const openEditTask = (task: Task) => {
+    setEditingTask(task);
+    setIsTaskSheetOpen(true);
+  };
+
+  const handleToggleTaskDone = (task: Task) => {
+    if (!id) return;
+
+    storage.updateTask(task.id, {
+      status: task.status === 'Hecha' ? 'Pendiente' : 'Hecha',
+    });
+    refreshProjectTasks(id);
+  };
+
   const getStagnationLevel = () => {
     if (stagnationDays >= 15) return { level: 3, color: 'text-red-600 dark:text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/20', label: 'Crítico', days: '15+', iconColor: 'bg-red-600', dotColor: 'bg-red-600' };
     if (stagnationDays >= 7) return { level: 2, color: 'text-orange-700 dark:text-orange-500', bg: 'bg-orange-600/10', border: 'border-orange-600/20', label: 'Alerta', days: '7+', iconColor: 'bg-orange-700', dotColor: 'bg-orange-700' };
@@ -405,7 +433,7 @@ export default function ProjectDetail() {
   };
 
   return (
-    <div className="space-y-8 pb-40">
+    <div className="space-y-6 pb-36">
       {/* Direction Sheet */}
       <DirectionSheet 
         isOpen={isDirectionOpen} 
@@ -436,11 +464,23 @@ export default function ProjectDetail() {
         onDeleteProcess={handleDeleteProcessPhoto}
       />
 
+      <TaskEditorSheet
+        open={isTaskSheetOpen}
+        task={editingTask}
+        projects={storage.getProjects()}
+        projectId={id}
+        onClose={() => setIsTaskSheetOpen(false)}
+        onSave={() => {
+          if (id) refreshProjectTasks(id);
+          setIsTaskSheetOpen(false);
+        }}
+      />
+
       {/* Finished Modal */}
       {showFinishedModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div 
-            className="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-[32px] p-8 max-w-sm w-full shadow-2xl space-y-6 text-center"
+          <div
+            className="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl p-5 max-w-sm w-full shadow-2xl space-y-4 text-center"
           >
             <div className="space-y-2">
               <div className="text-4xl mb-4">✨</div>
@@ -504,8 +544,8 @@ export default function ProjectDetail() {
 
       {/* Status & Priority Selectors */}
       {stagnation && (
-        <div className={cn("mx-2 p-4 rounded-2xl flex items-center gap-4 animate-in fade-in slide-in-from-top-4 duration-500", stagnation.bg, stagnation.border, "border")}>
-          <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center text-white shrink-0 shadow-lg", stagnation.iconColor)}>
+        <div className={cn("mx-2 p-3 rounded-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-4 duration-500", stagnation.bg, stagnation.border, "border")}>
+          <div className={cn("w-9 h-9 rounded-lg flex items-center justify-center text-white shrink-0 shadow-lg", stagnation.iconColor)}>
             <AlertTriangle size={20} strokeWidth={2.5} />
           </div>
           <div className="flex-1 space-y-3">
@@ -529,7 +569,7 @@ export default function ProjectDetail() {
         </div>
       )}
 
-      <div className="space-y-4 px-1">
+      <div className="space-y-3 px-1">
         <div className="space-y-2">
           <label className="label-caps">Estado</label>
           <div className="flex gap-1.5 overflow-x-auto pb-1.5 no-scrollbar">
@@ -572,7 +612,7 @@ export default function ProjectDetail() {
             <button
               type="button"
               onClick={() => setIsPhotoOpen(true)}
-              className="relative flex h-11 w-11 shrink-0 flex-col items-center justify-center rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] text-[var(--text-dim)] shadow-sm transition-all hover:border-[var(--accent)] hover:text-[var(--accent)] active:scale-95"
+              className="relative flex h-10 w-10 shrink-0 flex-col items-center justify-center rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] text-[var(--text-dim)] shadow-sm transition-all hover:border-[var(--accent)] hover:text-[var(--accent)] active:scale-95"
               aria-label="Abrir fotos del proyecto"
             >
               <Camera size={14} strokeWidth={2.5} />
@@ -588,7 +628,7 @@ export default function ProjectDetail() {
               <button
                 type="button"
                 onClick={() => setIsProductionOpen(true)}
-                className="relative flex h-11 w-11 shrink-0 flex-col items-center justify-center rounded-2xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-600 shadow-sm transition-all hover:border-emerald-500/40 hover:bg-emerald-500/15 active:scale-95"
+                className="relative flex h-10 w-10 shrink-0 flex-col items-center justify-center rounded-xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-600 shadow-sm transition-all hover:border-emerald-500/40 hover:bg-emerald-500/15 active:scale-95"
                 aria-label="Abrir producción del proyecto"
               >
                 <Factory size={14} strokeWidth={2.5} />
@@ -600,8 +640,76 @@ export default function ProjectDetail() {
 
       </div>
 
+      {/* Project Tasks */}
+      <section className="card-clean p-4 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
+              <ListChecks size={16} strokeWidth={2.5} />
+            </div>
+            <div className="space-y-0.5">
+              <label className="label-caps !mb-0 !ml-0">Tareas</label>
+              <p className="text-[9px] font-bold uppercase tracking-wider text-[var(--text-dim)]">
+                {projectTasks.filter((task) => task.status !== 'Hecha' && task.status !== 'Cancelada').length} pendientes
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={openNewTask}
+            className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--accent)] text-[var(--accent-foreground)] shadow-md transition-all hover:opacity-90 active:scale-95"
+            aria-label="Crear tarea del proyecto"
+          >
+            <Plus size={18} strokeWidth={3} />
+          </button>
+        </div>
+
+        {projectTasks.length > 0 ? (
+          <div className="space-y-2">
+            {projectTasks.slice(0, 5).map((task) => {
+              const isDone = task.status === 'Hecha';
+
+              return (
+                <div key={task.id} className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] p-3">
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => handleToggleTaskDone(task)}
+                      className={cn(
+                        "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all active:scale-95",
+                        isDone
+                          ? "border-emerald-500 bg-emerald-500 text-white"
+                          : "border-[var(--border-subtle)] bg-[var(--bg-card)] text-[var(--text-dim)] hover:text-[var(--accent)]",
+                      )}
+                      aria-label={isDone ? 'Marcar pendiente' : 'Marcar hecha'}
+                    >
+                      {isDone ? <CheckCircle2 size={16} strokeWidth={2.5} /> : <Circle size={15} strokeWidth={2.5} />}
+                    </button>
+                    <button type="button" onClick={() => openEditTask(task)} className="min-w-0 flex-1 text-left">
+                      <p className={cn("text-sm font-bold text-[var(--text-main)]", isDone && "line-through opacity-60")}>{task.title}</p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <span className="rounded-full border border-[var(--border-subtle)] bg-[var(--bg-card)] px-2 py-0.5 text-[6px] font-bold uppercase tracking-widest text-[var(--text-dim)]">
+                          {task.priority}
+                        </span>
+                        <span className="rounded-full border border-[var(--border-subtle)] bg-[var(--bg-card)] px-2 py-0.5 text-[6px] font-bold uppercase tracking-widest text-[var(--text-dim)]">
+                          {task.status}
+                        </span>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-[var(--border-subtle)] bg-[var(--bg-app)] p-4 text-center">
+            <p className="text-[8px] font-bold uppercase tracking-[0.18em] text-[var(--text-dim)]">Sin tareas vinculadas</p>
+          </div>
+        )}
+      </section>
+
       {/* Summary of Direction */}
-      <section className="card-clean p-5 space-y-6">
+      <section className="card-clean p-4 space-y-4">
         <div className="flex items-center justify-between">
           <label className="label-caps !ml-0 !mb-0">Resumen de 7Flow ADN</label>
           <button onClick={() => setIsDirectionOpen(true)} className="text-[var(--accent)] text-[8px] font-bold uppercase tracking-[0.1em] flex items-center gap-1.5 hover:opacity-70 transition-opacity">
@@ -649,7 +757,7 @@ export default function ProjectDetail() {
       )}
 
       {(direction?.in?.length > 0 || hasTimeProgress || hasBudgetProgress) && (
-        <section className="card-clean p-5 space-y-5">
+        <section className="card-clean p-4 space-y-4">
           <div className="flex items-center justify-between">
             <label className="label-caps !ml-0 !mb-0">Insumos (IN)</label>
             <button onClick={() => setIsDirectionOpen(true)} className="text-[var(--accent)] text-[8px] font-bold uppercase tracking-[0.1em] flex items-center gap-1.5 hover:opacity-70 transition-opacity">

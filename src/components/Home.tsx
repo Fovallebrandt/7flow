@@ -1,14 +1,20 @@
-import React, { useEffect, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { storage } from '../lib/storage';
-import { Project } from '../types';
+import { Project, ProjectAlert } from '../types';
 import { useNavigate } from 'react-router-dom';
-import { ChevronRight, Target, Clock, AlertCircle, CheckCircle2, Plus, AlertTriangle } from 'lucide-react';
+import { CalendarDays, ChevronRight, Target, Clock, AlertCircle, CheckCircle2, Plus, AlertTriangle, ListChecks } from 'lucide-react';
 import { cn } from '../lib/utils';
 import LoadingSpinner from './LoadingSpinner';
+import PriorityReviewSheet from './PriorityReviewSheet';
+
+const TasksSheet = lazy(() => import('./Tasks').then((module) => ({ default: module.TasksSheet })));
 
 export default function Home() {
   const [projects, setProjects] = useState<Project[]>(storage.getProjects());
   const [loading, setLoading] = useState(false);
+  const [isPriorityReviewOpen, setIsPriorityReviewOpen] = useState(false);
+  const [isTasksOpen, setIsTasksOpen] = useState(false);
+  const [startTaskCreate, setStartTaskCreate] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -16,32 +22,28 @@ export default function Home() {
     setProjects(p);
   }, []);
 
-  const nowProject = projects.find((p) => p.priority === 'NOW' && p.status !== 'Terminado');
-  const nextProjects = projects.filter((p) => p.priority !== 'NOW' && p.status !== 'Terminado')
+  const nowProject = projects.find((p) => p.priority === 'NOW' && p.status === 'Activo');
+  const nextProjects = projects.filter((p) => p.priority !== 'NOW' && (p.status === 'Activo' || p.status === 'Idea'))
     .sort((a, b) => {
       const pA = a.priority.replace('Next', '');
       const pB = b.priority.replace('Next', '');
       return parseInt(pA) - parseInt(pB);
     });
   const finishedProjects = projects.filter((p) => p.status === 'Terminado');
-  const stagnantProjects = storage.getStagnantProjects(3); // 3 days threshold
+  const alerts = storage.getProjectAlerts();
+  const pendingAlerts = alerts.filter((alert) => alert.severity !== 'info').slice(0, 5);
 
   const getStagnationLevel = (id: string) => {
-    const days = storage.getProjectStagnationDays(id);
-    if (days >= 15) return { level: 3, color: 'text-red-600 dark:text-red-400', label: 'Crítico', icon: AlertTriangle, bg: 'bg-red-500/10', border: 'border-red-500/20', iconColor: 'bg-red-600' };
-    if (days >= 7) return { level: 2, color: 'text-orange-700 dark:text-orange-500', label: 'Alerta', icon: AlertTriangle, bg: 'bg-orange-600/10', border: 'border-orange-600/20', iconColor: 'bg-orange-700' };
-    if (days >= 3) return { level: 1, color: 'text-orange-500 dark:text-orange-400', label: 'Rezago', icon: AlertTriangle, bg: 'bg-orange-500/10', border: 'border-orange-500/20', iconColor: 'bg-orange-500' };
+    const alert = alerts.find((item) => item.projectId === id && item.type === 'stagnant');
+    if (alert?.severity === 'critical') return { level: 3, color: 'text-red-600 dark:text-red-400', label: 'Crítico', icon: AlertTriangle, bg: 'bg-red-500/10', border: 'border-red-500/20', iconColor: 'bg-red-600' };
+    if (alert?.severity === 'warning') return { level: 2, color: 'text-orange-700 dark:text-orange-500', label: 'Rezago', icon: AlertTriangle, bg: 'bg-orange-600/10', border: 'border-orange-600/20', iconColor: 'bg-orange-700' };
     return null;
   };
 
-  const getBannerInfo = () => {
-    const levels = stagnantProjects.map(p => getStagnationLevel(p.id)).filter(Boolean);
-    if (levels.some(l => l?.level === 3)) return { color: 'text-red-600 dark:text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/20', iconColor: 'bg-red-600', label: 'Crítico' };
-    if (levels.some(l => l?.level === 2)) return { color: 'text-orange-700 dark:text-orange-500', bg: 'bg-orange-600/10', border: 'border-orange-600/20', iconColor: 'bg-orange-700', label: 'Alerta' };
-    return { color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/20', iconColor: 'bg-orange-500', label: 'Rezago' };
+  const getAlertCardStyle = (alert: ProjectAlert) => {
+    if (alert.severity === 'critical') return 'border-red-500/20 bg-red-500/10 text-red-600';
+    return 'border-orange-500/20 bg-orange-500/10 text-orange-700 dark:text-orange-500';
   };
-
-  const bannerInfo = getBannerInfo();
 
   const handleStartProject = (id: string) => {
     storage.updateProject(id, { priority: 'NOW', status: 'Activo' });
@@ -58,22 +60,74 @@ export default function Home() {
   }
 
   return (
-    <div className="space-y-8 pb-24">
-      {/* Stagnant Warning */}
-      {stagnantProjects.length > 0 && (
-        <div className={cn("mx-2 p-4 rounded-2xl flex items-center gap-4 animate-in fade-in slide-in-from-top-4 duration-500 border", bannerInfo.bg, bannerInfo.border)}>
-          <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center text-white shrink-0 shadow-lg", bannerInfo.iconColor)}>
-            <AlertTriangle size={20} strokeWidth={2.5} />
-          </div>
-          <div className="space-y-0.5">
-            <p className={cn("text-xs font-bold", bannerInfo.color)}>
-              Atención: {stagnantProjects.length} {stagnantProjects.length === 1 ? 'proyecto' : 'proyectos'} en {bannerInfo.label}
-            </p>
-            <p className={cn("text-[9px] uppercase font-bold tracking-wider opacity-70", bannerInfo.color)}>
-              Requieren tu atención inmediata para mantener el flujo
-            </p>
-          </div>
+    <div className="space-y-6 pb-24">
+      <div className="px-2">
+        <div className="grid grid-cols-3 gap-2">
+          <button
+            type="button"
+            onClick={() => setIsTasksOpen(true)}
+            className="flex h-14 items-center justify-center rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] text-center shadow-sm transition-all hover:border-[var(--border-active)] active:scale-[0.98]"
+            aria-label="Abrir tareas"
+          >
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
+              <ListChecks size={18} strokeWidth={2.5} />
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsPriorityReviewOpen(true)}
+            className="flex h-14 items-center justify-center rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] text-center shadow-sm transition-all hover:border-[var(--border-active)] active:scale-[0.98]"
+            aria-label="Abrir prioridades"
+          >
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--accent)]/10 text-[var(--accent)]">
+              <Target size={18} strokeWidth={2.5} />
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setStartTaskCreate(true);
+              setIsTasksOpen(true);
+            }}
+            className="flex h-14 items-center justify-center rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] text-center shadow-sm transition-all hover:border-[var(--border-active)] active:scale-[0.98]"
+            aria-label="Agregar tarea"
+          >
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--bg-app)] text-[var(--text-main)]">
+              <Plus size={18} strokeWidth={2.5} />
+            </div>
+          </button>
         </div>
+      </div>
+
+      {pendingAlerts.length > 0 && (
+        <section className="space-y-3">
+          <div className="flex items-center justify-between px-2">
+            <label className="label-caps">Acciones pendientes</label>
+            <button type="button" onClick={() => navigate('/calendar')} className="flex items-center gap-1.5 text-[8px] font-bold uppercase tracking-[0.12em] text-[var(--accent)]">
+              <CalendarDays size={12} />
+              Agenda
+            </button>
+          </div>
+          <div className="space-y-2">
+            {pendingAlerts.map((alert) => (
+              <div key={alert.id} className={cn("rounded-xl border p-3", getAlertCardStyle(alert))}>
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-current/10">
+                    <AlertTriangle size={17} strokeWidth={2.5} />
+                  </div>
+                  <button type="button" onClick={() => navigate(`/project/${alert.projectId}`)} className="min-w-0 flex-1 text-left">
+                    <p className="text-xs font-black uppercase tracking-[0.08em]">{alert.title}</p>
+                    <p className="mt-1 truncate text-sm font-bold text-[var(--text-main)]">{alert.projectName}</p>
+                    <p className="mt-0.5 line-clamp-2 text-[11px] font-medium leading-relaxed opacity-80">{alert.description}</p>
+                  </button>
+                  <ChevronRight size={16} strokeWidth={2.5} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
       )}
 
       {/* NOW Section */}
@@ -86,7 +140,7 @@ export default function Home() {
         {nowProject ? (
           <div
             onClick={() => navigate(`/project/${nowProject.id}`)}
-            className="group relative card-clean p-5 cursor-pointer hover:shadow-xl hover:shadow-black/5 transition-all active:scale-[0.98]"
+            className="group relative card-clean p-4 cursor-pointer hover:shadow-xl hover:shadow-black/5 transition-all active:scale-[0.98]"
           >
             <div className="flex justify-between items-start mb-4">
               <div className="space-y-0.5">
@@ -115,7 +169,7 @@ export default function Home() {
             </div>
 
             <div className="space-y-4">
-              <div className="bg-[var(--bg-app)] p-4 rounded-xl border border-[var(--border-subtle)] shadow-inner">
+              <div className="bg-[var(--bg-app)] p-3 rounded-lg border border-[var(--border-subtle)] shadow-inner">
                 <p className="label-caps !ml-0 mb-1">Siguiente Acción</p>
                 <p className="text-base font-medium text-[var(--text-main)] leading-relaxed">
                   {nowProject.nextAction || 'Define el siguiente paso...'}
@@ -144,10 +198,10 @@ export default function Home() {
                 </div>
                 
                 <div className="grid grid-cols-1 gap-2">
-                  {nextProjects.slice(0, 3).map((p, idx) => (
+                  {nextProjects.slice(0, 3).map((p) => (
                     <div
                       key={p.id}
-                      className="flex items-center justify-between bg-[var(--bg-card)] border border-[var(--border-subtle)] p-4 rounded-[16px] group hover:border-[var(--border-active)] transition-all"
+                      className="flex items-center justify-between bg-[var(--bg-card)] border border-[var(--border-subtle)] p-3 rounded-xl group hover:border-[var(--border-active)] transition-all"
                     >
                       <div className="flex items-center gap-4">
                         <div className={cn(
@@ -208,11 +262,11 @@ export default function Home() {
         </div>
         <div className="space-y-2">
           {nextProjects.length > 0 ? (
-            nextProjects.map((p, idx) => (
+            nextProjects.map((p) => (
               <div
                 key={p.id}
                 onClick={() => navigate(`/project/${p.id}`)}
-                className="flex items-center justify-between bg-[var(--bg-card)] border border-[var(--border-subtle)] p-4 rounded-[16px] cursor-pointer hover:shadow-lg hover:shadow-black/5 hover:border-[var(--border-active)] transition-all active:scale-[0.99] group"
+                className="flex items-center justify-between bg-[var(--bg-card)] border border-[var(--border-subtle)] p-3 rounded-xl cursor-pointer hover:shadow-lg hover:shadow-black/5 hover:border-[var(--border-active)] transition-all active:scale-[0.99] group"
               >
                 <div className="flex items-center gap-4">
                   <div className={cn(
@@ -266,6 +320,25 @@ export default function Home() {
             ))}
           </div>
         </section>
+      )}
+
+      <PriorityReviewSheet
+        open={isPriorityReviewOpen}
+        projects={projects}
+        onClose={() => setIsPriorityReviewOpen(false)}
+        onProjectsChange={setProjects}
+      />
+      {isTasksOpen && (
+        <Suspense fallback={null}>
+          <TasksSheet
+            open={isTasksOpen}
+            startCreate={startTaskCreate}
+            onClose={() => {
+              setIsTasksOpen(false);
+              setStartTaskCreate(false);
+            }}
+          />
+        </Suspense>
       )}
     </div>
   );

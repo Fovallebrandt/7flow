@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
 import { User, Package, Database, Trash2, Download, Upload, Save, Plus, X, Settings as SettingsIcon } from 'lucide-react';
 import { storage, UserProfile } from '../lib/storage';
-import { ProjectTimeRecord } from '../types';
+import { InventoryConfig, InventoryItem, Project, ProjectPhotos, ProjectProductionData, ProjectTimeRecord, Task } from '../types';
 import { toast } from 'sonner';
 import ConfirmDialog from './ConfirmDialog';
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
 
 export default function Settings({ onClose }: { onClose?: () => void }) {
   const [user, setUser] = useState<UserProfile>(storage.getUserProfile());
@@ -55,6 +58,7 @@ export default function Settings({ onClose }: { onClose?: () => void }) {
       production: storage.getAllProjectProduction(),
       providers: storage.getProviders(),
       timeStats: storage.getProjectTimeStats(),
+      tasks: storage.getTasks(),
       logs: storage.getProjects().reduce((acc: any, p) => {
         acc[p.id] = storage.getLogs(p.id);
         return acc;
@@ -81,17 +85,22 @@ export default function Settings({ onClose }: { onClose?: () => void }) {
     reader.onload = (event) => {
       try {
         const data = JSON.parse(event.target?.result as string);
-        if (data.projects) storage.saveProjects(data.projects);
-        if (data.inventory) storage.saveInventory(data.inventory);
-        if (data.config) storage.saveInventoryConfig(data.config);
-        if (data.user) storage.saveUserProfile(data.user);
-        if (data.photos) storage.saveProjectPhotos(data.photos);
-        if (data.production) storage.saveAllProjectProduction(data.production);
+        if (!isRecord(data)) {
+          throw new Error('Backup inválido');
+        }
+
+        if (Array.isArray(data.projects)) storage.saveProjects(data.projects as Project[]);
+        if (Array.isArray(data.inventory)) storage.saveInventory(data.inventory as InventoryItem[]);
+        if (isRecord(data.config)) storage.saveInventoryConfig(data.config as unknown as InventoryConfig);
+        if (isRecord(data.user)) storage.saveUserProfile(data.user as unknown as UserProfile);
+        if (isRecord(data.photos)) storage.saveProjectPhotos(data.photos as Record<string, ProjectPhotos>);
+        if (isRecord(data.production)) storage.saveAllProjectProduction(data.production as Record<string, ProjectProductionData>);
         if (Array.isArray(data.providers)) storage.saveProviders(data.providers);
         if (Array.isArray(data.timeStats)) storage.saveProjectTimeStats(data.timeStats as ProjectTimeRecord[]);
+        if (Array.isArray(data.tasks)) storage.saveTasks(data.tasks as Task[]);
         if (data.logs) {
           Object.entries(data.logs).forEach(([id, logs]) => {
-            localStorage.setItem(`7flow_logs_${id}`, JSON.stringify(logs));
+            storage.saveLogs(id, Array.isArray(logs) ? logs : []);
           });
         }
         storage.syncProjectTimeStats();
@@ -109,7 +118,7 @@ export default function Settings({ onClose }: { onClose?: () => void }) {
   };
 
   const confirmClearData = () => {
-    localStorage.clear();
+    storage.clearAppData();
     toast.success('Todos los datos han sido borrados');
     window.location.href = '/';
   };

@@ -1,12 +1,17 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
-import Home from './components/Home';
-import CreateProject from './components/CreateProject';
-import ProjectDetail from './components/ProjectDetail';
-import Profile from './components/Profile';
-import Inventory from './components/Inventory';
 import { ThemeProvider, useTheme } from './lib/ThemeContext';
 import { Toaster } from 'sonner';
+import LoadingSpinner from './components/LoadingSpinner';
+
+const Home = lazy(() => import('./components/Home'));
+const CreateProject = lazy(() => import('./components/CreateProject'));
+const ProjectDetail = lazy(() => import('./components/ProjectDetail'));
+const Profile = lazy(() => import('./components/Profile'));
+const Inventory = lazy(() => import('./components/Inventory'));
+const Calendar = lazy(() => import('./components/Calendar'));
+const Tasks = lazy(() => import('./components/Tasks'));
 
 function AppShell() {
   const { theme } = useTheme();
@@ -15,13 +20,23 @@ function AppShell() {
     <>
       <Router>
         <Layout>
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/create" element={<CreateProject />} />
-            <Route path="/project/:id" element={<ProjectDetail />} />
-            <Route path="/profile" element={<Profile />} />
-            <Route path="/inventory" element={<Inventory />} />
-          </Routes>
+          <Suspense
+            fallback={
+              <div className="flex h-64 items-center justify-center">
+                <LoadingSpinner />
+              </div>
+            }
+          >
+            <Routes>
+              <Route path="/" element={<Home />} />
+              <Route path="/create" element={<CreateProject />} />
+              <Route path="/project/:id" element={<ProjectDetail />} />
+              <Route path="/profile" element={<Profile />} />
+              <Route path="/inventory" element={<Inventory />} />
+              <Route path="/calendar" element={<Calendar />} />
+              <Route path="/tasks" element={<Tasks />} />
+            </Routes>
+          </Suspense>
         </Layout>
       </Router>
       <Toaster

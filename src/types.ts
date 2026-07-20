@@ -1,8 +1,14 @@
 export type Priority = 'NOW' | 'Next1' | 'Next2' | 'Next3';
 export type ProjectType = 'De la vida' | 'Software' | 'Contenido' | 'Fisico';
-export type ProjectStatus = 'Idea' | 'Activo' | 'Bloqueado' | 'Terminado';
+export type ProjectStatus = 'Idea' | 'Activo' | 'Bloqueado' | 'Aplazado' | 'Terminado';
 export type ProjectPhotoStage = 'before' | 'after';
 export type AppMode = 'Creativo' | 'Produccion';
+export type TaskStatus = 'Pendiente' | 'En progreso' | 'Hecha' | 'Cancelada';
+export type TaskPriority = 'Hoy' | 'Pronto' | 'Algún día';
+export type TaskKind = 'regular' | 'unblock';
+export type AlertSeverity = 'info' | 'warning' | 'critical';
+export type ProjectAlertType = 'stagnant' | 'postponed_due' | 'postponed_upcoming' | 'blocked_review' | 'unblock_task_due';
+export type CalendarEventType = 'task' | 'unblock_task' | 'postponed_review' | 'blocked_review';
 
 export interface ProjectPhoto {
   id?: string;
@@ -65,6 +71,15 @@ export interface Project {
   direction: Direction;
   ownerId: string;
   productionEnabled?: boolean;
+  lastActivityAt?: string;
+  postponedUntil?: string;
+  postponedReason?: string;
+  postponedNextAction?: string;
+  blockedReason?: string;
+  blockedReviewAt?: string;
+  unblockTaskId?: string;
+  previousStatus?: ProjectStatus;
+  previousPriority?: Priority;
 }
 
 export interface LogEntry {
@@ -73,6 +88,44 @@ export interface LogEntry {
   timestamp: string; // ISO String
   completedAction?: string;
   newNextAction?: string;
+}
+
+export interface Task {
+  id: string;
+  title: string;
+  notes: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  kind: TaskKind;
+  projectId?: string;
+  createdAt: string; // ISO String
+  updatedAt: string; // ISO String
+  dueAt?: string;
+  completedAt?: string;
+}
+
+export interface ProjectAlert {
+  id: string;
+  type: ProjectAlertType;
+  severity: AlertSeverity;
+  projectId: string;
+  projectName: string;
+  title: string;
+  description: string;
+  dueAt?: string;
+  days: number;
+  taskId?: string;
+}
+
+export interface CalendarEvent {
+  id: string;
+  type: CalendarEventType;
+  title: string;
+  description: string;
+  date: string;
+  projectId?: string;
+  taskId?: string;
+  status: 'overdue' | 'today' | 'upcoming' | 'done';
 }
 
 export type InventoryStatus = 'Consumido' | 'En uso' | 'Para usar' | 'Para mejorar' | 'Guardado';

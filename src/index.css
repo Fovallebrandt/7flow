@@ -46,15 +46,15 @@
 }
 
 .card-clean {
-  @apply bg-[var(--bg-card)] rounded-[16px] shadow-[0_2px_12px_rgba(0,0,0,0.02)] border border-[var(--border-subtle)];
+  @apply bg-[var(--bg-card)] rounded-xl shadow-[0_1px_8px_rgba(0,0,0,0.02)] border border-[var(--border-subtle)];
 }
 
 .input-clean {
-  @apply w-full bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl p-4 text-[var(--text-main)] placeholder:text-[var(--text-dim)] focus:border-[var(--border-active)] focus:outline-none shadow-sm;
+  @apply w-full bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg p-3 text-[var(--text-main)] placeholder:text-[var(--text-dim)] focus:border-[var(--border-active)] focus:outline-none shadow-sm;
 }
 
 .label-caps {
-  @apply text-[8px] uppercase font-bold tracking-[0.1em] text-[var(--text-dim)] ml-1 mb-1 block;
+  @apply text-[7px] uppercase font-bold tracking-[0.11em] text-[var(--text-dim)] ml-1 mb-1 block;
 }
 
 .text-muted {

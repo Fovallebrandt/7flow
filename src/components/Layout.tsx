@@ -1,8 +1,7 @@
 import React, { useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Plus, Home, Package, Moon, Sun, User } from 'lucide-react';
+import { CalendarDays, ListChecks, Plus, Home, Package, User } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { useTheme } from '../lib/ThemeContext';
 import { storage } from '../lib/storage';
 import { PwaInstallProvider } from '../lib/pwaInstall';
 
@@ -15,7 +14,6 @@ interface LayoutProps {
 export default function Layout({ children, title, showNav = true }: LayoutProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { theme, toggleTheme } = useTheme();
 
   useEffect(() => {
     storage.syncProjectTimeStats();
@@ -40,15 +38,15 @@ export default function Layout({ children, title, showNav = true }: LayoutProps)
     <PwaInstallProvider>
       <div className="min-h-screen bg-[var(--bg-app)] text-[var(--text-main)] font-sans selection:bg-[var(--accent)] selection:text-[var(--accent-foreground)]">
       {/* Header */}
-      <header className="sticky top-0 z-50 bg-[var(--bg-app)]/80 backdrop-blur-md border-b border-[var(--border-subtle)] px-6 py-5 flex items-center justify-between pt-[max(1.25rem,env(safe-area-inset-top))]">
-        <div className="space-y-1.5">
-          <h1 className="text-xl font-bold tracking-tight text-[var(--text-main)] leading-none">
+      <header className="sticky top-0 z-50 bg-[var(--bg-app)]/80 backdrop-blur-md border-b border-[var(--border-subtle)] px-5 py-4 flex items-center justify-between pt-[max(1rem,env(safe-area-inset-top))]">
+        <div className="space-y-1">
+          <h1 className="text-lg font-bold tracking-tight text-[var(--text-main)] leading-none">
             {formattedDate}
           </h1>
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-[var(--text-dim)]">Hola, Fernando</span>
-            <div className="bg-[var(--accent)]/10 border border-[var(--accent)]/20 rounded-full px-2.5 py-0.5 flex items-center gap-1">
-              <span className="text-[9px] font-bold text-[var(--accent)] uppercase tracking-wider">
+            <span className="text-xs font-medium text-[var(--text-dim)]">Hola, Fernando</span>
+            <div className="bg-[var(--accent)]/10 border border-[var(--accent)]/20 rounded-full px-2 py-0.5 flex items-center gap-1">
+              <span className="text-[8px] font-bold text-[var(--accent)] uppercase tracking-wider">
                 {todayProjects} PROYECTOS HOY
               </span>
             </div>
@@ -68,16 +66,16 @@ export default function Layout({ children, title, showNav = true }: LayoutProps)
       </header>
 
       {/* Main Content */}
-      <main className="pb-40 max-w-xl mx-auto px-4 pt-6 relative">
+      <main className="pb-36 max-w-xl mx-auto px-4 pt-4 relative">
         {children}
       </main>
 
       {/* Bottom Background Block (Stylistic Anchor) */}
-      <div className="fixed bottom-0 left-0 right-0 h-24 bg-[var(--bg-card)] rounded-t-[32px] border-t border-[var(--border-subtle)] z-0 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]" />
+      <div className="fixed bottom-0 left-0 right-0 h-20 bg-[var(--bg-card)] rounded-t-[24px] border-t border-[var(--border-subtle)] z-0 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]" />
 
       {/* Bottom Navigation */}
       {showNav && (
-        <nav className="fixed bottom-[calc(2.5rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 bg-[var(--nav-bg)]/90 backdrop-blur-2xl border border border-[var(--border-subtle)] px-8 py-4 flex gap-10 items-center rounded-[40px] shadow-2xl shadow-black/10 z-50">
+        <nav className="fixed bottom-[calc(2rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 bg-[var(--nav-bg)]/90 backdrop-blur-2xl border border border-[var(--border-subtle)] px-4 py-3 flex gap-5 items-center rounded-[32px] shadow-2xl shadow-black/10 z-50">
           <button
             onClick={() => navigate('/')}
             className={cn(
@@ -90,10 +88,32 @@ export default function Layout({ children, title, showNav = true }: LayoutProps)
           </button>
 
           <button
+            onClick={() => navigate('/calendar')}
+            className={cn(
+              "flex flex-col items-center gap-1.5",
+              isActive('/calendar') ? "text-[var(--accent)]" : "text-[var(--text-dim)] hover:text-[var(--accent)]"
+            )}
+          >
+            <CalendarDays size={20} strokeWidth={isActive('/calendar') ? 3 : 2} />
+            <span className="text-[9px] font-bold uppercase tracking-[0.1em]">Agenda</span>
+          </button>
+
+          <button
             onClick={() => navigate('/create')}
             className="bg-[var(--accent)] w-14 h-14 rounded-full text-[var(--accent-foreground)] shadow-xl shadow-[var(--accent)]/20 hover:opacity-90 flex items-center justify-center -mt-2 border-4 border-[var(--bg-app)]"
           >
             <Plus size={28} strokeWidth={3} />
+          </button>
+
+          <button
+            onClick={() => navigate('/tasks')}
+            className={cn(
+              "flex flex-col items-center gap-1.5",
+              isActive('/tasks') ? "text-[var(--accent)]" : "text-[var(--text-dim)] hover:text-[var(--accent)]"
+            )}
+          >
+            <ListChecks size={20} strokeWidth={isActive('/tasks') ? 3 : 2} />
+            <span className="text-[9px] font-bold uppercase tracking-[0.1em]">Tareas</span>
           </button>
 
           <button

@@ -10,9 +10,15 @@ import {
   ProjectTimeRecord,
   ProjectTimeSummary,
   AppMode,
+  AlertSeverity,
+  CalendarEvent,
+  CalendarEventType,
   Task,
+  TaskKind,
   TaskPriority,
   TaskStatus,
+  ProjectAlert,
+  ProjectStatus,
   ProductionCostCategory,
   ProductionQuote,
   ProductionQuoteStatus,
@@ -59,8 +65,10 @@ const INVENTORY_CATEGORIES: InventoryCategory[] = ['Material', 'Herramienta', 'P
 const PRODUCTION_CATEGORIES: ProductionCostCategory[] = ['Materiales', 'Herramientas', 'Servicios', 'Transporte', 'Mano de obra', 'Otros'];
 const QUOTE_STATUSES: ProductionQuoteStatus[] = ['Cotizada', 'En compra', 'Descartada'];
 const PURCHASE_STATUSES: PurchasePlanStatus[] = ['Pendiente', 'Comprado', 'Cancelado'];
+const PROJECT_STATUSES: ProjectStatus[] = ['Idea', 'Activo', 'Bloqueado', 'Aplazado', 'Terminado'];
 const TASK_STATUSES: TaskStatus[] = ['Pendiente', 'En progreso', 'Hecha', 'Cancelada'];
 const TASK_PRIORITIES: TaskPriority[] = ['Hoy', 'Pronto', 'Algún día'];
+const TASK_KINDS: TaskKind[] = ['regular', 'unblock'];
 
 const createId = () => Math.random().toString(36).substr(2, 9);
 
@@ -191,6 +199,45 @@ const normalizeProvider = (provider: Partial<Provider>): Provider => {
   };
 };
 
+const normalizeProject = (project: Partial<Project>): Project => {
+  const now = new Date().toISOString();
+  const status = PROJECT_STATUSES.includes(project.status as ProjectStatus)
+    ? project.status as ProjectStatus
+    : 'Idea';
+  const priority = ['NOW', 'Next1', 'Next2', 'Next3'].includes(project.priority as string)
+    ? project.priority as Project['priority']
+    : 'Next3';
+  const previousStatus = PROJECT_STATUSES.includes(project.previousStatus as ProjectStatus)
+    ? project.previousStatus
+    : undefined;
+  const previousPriority = ['NOW', 'Next1', 'Next2', 'Next3'].includes(project.previousPriority as string)
+    ? project.previousPriority
+    : undefined;
+
+  return {
+    id: typeof project.id === 'string' && project.id ? project.id : createId(),
+    name: typeof project.name === 'string' ? project.name : '',
+    description: typeof project.description === 'string' ? project.description : '',
+    priority,
+    type: project.type || 'De la vida',
+    status,
+    createdAt: typeof project.createdAt === 'string' ? project.createdAt : now,
+    nextAction: typeof project.nextAction === 'string' ? project.nextAction : '',
+    direction: normalizeDirection(project.direction),
+    ownerId: typeof project.ownerId === 'string' ? project.ownerId : '',
+    productionEnabled: project.productionEnabled === true,
+    lastActivityAt: typeof project.lastActivityAt === 'string' ? project.lastActivityAt : undefined,
+    postponedUntil: typeof project.postponedUntil === 'string' ? project.postponedUntil : undefined,
+    postponedReason: typeof project.postponedReason === 'string' ? project.postponedReason : undefined,
+    postponedNextAction: typeof project.postponedNextAction === 'string' ? project.postponedNextAction : undefined,
+    blockedReason: typeof project.blockedReason === 'string' ? project.blockedReason : undefined,
+    blockedReviewAt: typeof project.blockedReviewAt === 'string' ? project.blockedReviewAt : undefined,
+    unblockTaskId: typeof project.unblockTaskId === 'string' ? project.unblockTaskId : undefined,
+    previousStatus,
+    previousPriority,
+  };
+};
+
 const normalizeTask = (task: Partial<Task>): Task => {
   const now = new Date().toISOString();
   const status = TASK_STATUSES.includes(task.status as TaskStatus) ? task.status as TaskStatus : 'Pendiente';
@@ -201,6 +248,7 @@ const normalizeTask = (task: Partial<Task>): Task => {
     notes: typeof task.notes === 'string' ? task.notes : '',
     status,
     priority: TASK_PRIORITIES.includes(task.priority as TaskPriority) ? task.priority as TaskPriority : 'Hoy',
+    kind: TASK_KINDS.includes(task.kind as TaskKind) ? task.kind as TaskKind : 'regular',
     projectId: typeof task.projectId === 'string' && task.projectId ? task.projectId : undefined,
     createdAt: typeof task.createdAt === 'string' ? task.createdAt : now,
     updatedAt: typeof task.updatedAt === 'string' ? task.updatedAt : now,
@@ -211,6 +259,40 @@ const normalizeTask = (task: Partial<Task>): Task => {
         ? now
         : undefined,
   };
+};
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+const parseDate = (value?: string): Date | null => {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const startOfLocalDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+const daysBetween = (from: Date, to: Date) =>
+  Math.floor((startOfLocalDay(to).getTime() - startOfLocalDay(from).getTime()) / MS_PER_DAY);
+
+const dateStatus = (date: Date, now = new Date()): CalendarEvent['status'] => {
+  const days = daysBetween(date, now);
+  if (days > 0) return 'overdue';
+  if (days === 0) return 'today';
+  return 'upcoming';
+};
+
+const getStagnationThresholds = (project: Project) => {
+  if (project.priority === 'NOW') return { warning: 1, alert: 3, critical: 7 };
+  if (project.priority === 'Next1') return { warning: 3, alert: 7, critical: 15 };
+  return { warning: 7, alert: 15, critical: 30 };
+};
+
+const getStagnationSeverity = (days: number, project: Project): { severity: AlertSeverity; label: string } | null => {
+  const thresholds = getStagnationThresholds(project);
+  if (days >= thresholds.critical) return { severity: 'critical', label: 'Crítico' };
+  if (days >= thresholds.alert) return { severity: 'warning', label: 'Alerta' };
+  if (days >= thresholds.warning) return { severity: 'warning', label: 'Rezago' };
+  return null;
 };
 
 export const storage = {
@@ -226,15 +308,11 @@ export const storage = {
     const projects = readJson<Partial<Project>[]>(PROJECTS_KEY, []);
     if (!Array.isArray(projects)) return [];
 
-    return projects.filter(isRecord).map((project) => ({
-      ...project,
-      direction: normalizeDirection(project.direction),
-      productionEnabled: project.productionEnabled === true,
-    } as Project));
+    return projects.filter(isRecord).map(normalizeProject);
   },
   
   saveProjects: (projects: Project[]) => {
-    writeJson(PROJECTS_KEY, projects);
+    writeJson(PROJECTS_KEY, projects.map(normalizeProject));
   },
   
   getProject: (id: string): Project | undefined => {
@@ -243,8 +321,8 @@ export const storage = {
   
   addProject: (project: Omit<Project, 'id'>): string => {
     const projects = storage.getProjects();
-    const id = Math.random().toString(36).substr(2, 9);
-    const newProject = { ...project, id };
+    const id = createId();
+    const newProject = normalizeProject({ ...project, id });
     storage.saveProjects([newProject, ...projects]);
     return id;
   },
@@ -253,9 +331,13 @@ export const storage = {
     const projects = storage.getProjects();
     const index = projects.findIndex(p => p.id === id);
     if (index !== -1) {
-      projects[index] = { ...projects[index], ...updates };
+      projects[index] = normalizeProject({ ...projects[index], ...updates });
       storage.saveProjects(projects);
     }
+  },
+
+  markProjectActivity: (projectId: string, timestamp = new Date().toISOString()) => {
+    storage.updateProject(projectId, { lastActivityAt: timestamp });
   },
 
   getProjectPhoto: (projectId: string, stage: ProjectPhotoStage): ProjectPhoto | undefined => {
@@ -282,8 +364,9 @@ export const storage = {
 
   addProjectProcessPhoto: (projectId: string, photo: ProjectPhoto) => {
     const photos = storage.getProjectProcessPhotos(projectId);
-    const newPhoto = { ...photo, id: photo.id || Math.random().toString(36).substr(2, 9) };
+    const newPhoto = { ...photo, id: photo.id || createId() };
     storage.saveProjectProcessPhotos(projectId, [newPhoto, ...photos]);
+    storage.markProjectActivity(projectId, newPhoto.capturedAt || new Date().toISOString());
     return newPhoto.id;
   },
 
@@ -411,7 +494,9 @@ export const storage = {
   
   getLogs: (projectId: string): LogEntry[] => {
     const logs = readJson<LogEntry[]>(`${LOGS_KEY_PREFIX}${projectId}`, []);
-    return Array.isArray(logs) ? logs.filter(isRecord) as LogEntry[] : [];
+    return Array.isArray(logs)
+      ? (logs.filter(isRecord) as LogEntry[]).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      : [];
   },
 
   saveLogs: (projectId: string, logs: LogEntry[]) => {
@@ -420,9 +505,10 @@ export const storage = {
   
   addLog: (projectId: string, log: Omit<LogEntry, 'id'>) => {
     const logs = storage.getLogs(projectId);
-    const id = Math.random().toString(36).substr(2, 9);
+    const id = createId();
     const newLog = { ...log, id };
     storage.saveLogs(projectId, [newLog, ...logs]);
+    storage.markProjectActivity(projectId, newLog.timestamp);
     return id;
   },
   
@@ -475,7 +561,7 @@ export const storage = {
     writeJson(TASKS_KEY, tasks.map(normalizeTask));
   },
 
-  addTask: (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => {
+  addTask: (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt'> & { kind?: TaskKind }) => {
     const now = new Date().toISOString();
     const newTask = normalizeTask({ ...task, id: createId(), createdAt: now, updatedAt: now });
     storage.saveTasks([newTask, ...storage.getTasks()]);
@@ -484,17 +570,23 @@ export const storage = {
 
   updateTask: (taskId: string, updates: Partial<Task>) => {
     const now = new Date().toISOString();
+    let completedProjectId: string | undefined;
     storage.saveTasks(storage.getTasks().map((task) => {
       if (task.id !== taskId) return task;
 
       const nextStatus = updates.status ?? task.status;
-      return normalizeTask({
+      const nextTask = normalizeTask({
         ...task,
         ...updates,
         updatedAt: now,
         completedAt: nextStatus === 'Hecha' ? updates.completedAt || task.completedAt || now : undefined,
       });
+      if (nextStatus === 'Hecha' && task.status !== 'Hecha') {
+        completedProjectId = nextTask.projectId;
+      }
+      return nextTask;
     }));
+    if (completedProjectId) storage.markProjectActivity(completedProjectId, now);
   },
 
   deleteTask: (taskId: string) => {
@@ -732,36 +824,224 @@ export const storage = {
     });
   },
 
-  getProjectStagnationDays: (projectId: string): number => {
+  getProjectLastActivityAt: (projectId: string): string | undefined => {
     const project = storage.getProject(projectId);
-    if (!project) return 0;
-    
-    const logs = storage.getLogs(projectId);
-    const lastActivity = logs.length > 0 
-      ? new Date(logs[0].timestamp) 
-      : new Date(project.createdAt);
-    
+    if (!project) return undefined;
+
+    const candidates: string[] = [project.createdAt];
+    if (project.lastActivityAt) candidates.push(project.lastActivityAt);
+    storage.getLogs(projectId).forEach((log) => candidates.push(log.timestamp));
+    storage.getProjectTasks(projectId).forEach((task) => {
+      if (task.status === 'Hecha' && task.completedAt) candidates.push(task.completedAt);
+    });
+    storage.getProjectProcessPhotos(projectId).forEach((photo) => candidates.push(photo.capturedAt));
+    const before = storage.getProjectPhoto(projectId, 'before');
+    const after = storage.getProjectPhoto(projectId, 'after');
+    if (before?.capturedAt) candidates.push(before.capturedAt);
+    if (after?.capturedAt) candidates.push(after.capturedAt);
+
+    const production = storage.getProjectProduction(projectId);
+    production.costs.forEach((cost) => candidates.push(cost.createdAt));
+    production.purchases.forEach((purchase) => {
+      if (purchase.purchasedAt) candidates.push(purchase.purchasedAt);
+    });
+
+    return candidates
+      .map(parseDate)
+      .filter((date): date is Date => Boolean(date))
+      .sort((a, b) => b.getTime() - a.getTime())[0]
+      ?.toISOString();
+  },
+
+  getProjectStagnationDays: (projectId: string): number => {
+    const lastActivity = parseDate(storage.getProjectLastActivityAt(projectId));
+    if (!lastActivity) return 0;
+    return Math.max(0, daysBetween(lastActivity, new Date()));
+  },
+
+  getProjectAlerts: (): ProjectAlert[] => {
     const now = new Date();
-    const diff = now.getTime() - lastActivity.getTime();
-    return Math.floor(diff / (24 * 60 * 60 * 1000));
+    const projects = storage.getProjects();
+    const tasks = storage.getTasks();
+    const taskById = new Map(tasks.map((task) => [task.id, task]));
+    const alerts: ProjectAlert[] = [];
+
+    projects.forEach((project) => {
+      if (project.status === 'Terminado' || project.status === 'Idea') return;
+
+      if (project.status === 'Aplazado') {
+        const dueDate = parseDate(project.postponedUntil);
+        if (!dueDate) return;
+        const days = daysBetween(dueDate, now);
+        if (days >= 0) {
+          alerts.push({
+            id: `postponed:${project.id}`,
+            type: 'postponed_due',
+            severity: days >= 7 ? 'critical' : 'warning',
+            projectId: project.id,
+            projectName: project.name,
+            title: 'Revisar aplazamiento',
+            description: project.postponedNextAction || project.postponedReason || 'Decide si el proyecto vuelve al flujo.',
+            dueAt: project.postponedUntil,
+            days,
+          });
+        } else if (days >= -7) {
+          alerts.push({
+            id: `postponed-upcoming:${project.id}`,
+            type: 'postponed_upcoming',
+            severity: 'info',
+            projectId: project.id,
+            projectName: project.name,
+            title: 'Aplazamiento próximo',
+            description: project.postponedNextAction || project.postponedReason || 'Revisión programada.',
+            dueAt: project.postponedUntil,
+            days,
+          });
+        }
+        return;
+      }
+
+      if (project.status === 'Bloqueado') {
+        const reviewDate = parseDate(project.blockedReviewAt);
+        if (reviewDate) {
+          const days = daysBetween(reviewDate, now);
+          if (days >= 0) {
+            alerts.push({
+              id: `blocked-review:${project.id}`,
+              type: 'blocked_review',
+              severity: days >= 7 ? 'critical' : 'warning',
+              projectId: project.id,
+              projectName: project.name,
+              title: 'Revisar bloqueo',
+              description: project.blockedReason || 'Revisa si el bloqueo sigue vigente.',
+              dueAt: project.blockedReviewAt,
+              days,
+              taskId: project.unblockTaskId,
+            });
+          }
+        }
+
+        const unblockTask = project.unblockTaskId ? taskById.get(project.unblockTaskId) : undefined;
+        const taskDate = parseDate(unblockTask?.dueAt);
+        if (unblockTask && unblockTask.status !== 'Hecha' && unblockTask.status !== 'Cancelada' && taskDate) {
+          const days = daysBetween(taskDate, now);
+          if (days >= 0) {
+            alerts.push({
+              id: `unblock-task:${unblockTask.id}`,
+              type: 'unblock_task_due',
+              severity: days >= 3 ? 'critical' : 'warning',
+              projectId: project.id,
+              projectName: project.name,
+              title: 'Tarea de desbloqueo vencida',
+              description: unblockTask.notes || unblockTask.title,
+              dueAt: unblockTask.dueAt,
+              days,
+              taskId: unblockTask.id,
+            });
+          }
+        }
+        return;
+      }
+
+      const days = storage.getProjectStagnationDays(project.id);
+      const level = getStagnationSeverity(days, project);
+      if (!level) return;
+
+      alerts.push({
+        id: `stagnant:${project.id}`,
+        type: 'stagnant',
+        severity: level.severity,
+        projectId: project.id,
+        projectName: project.name,
+        title: `Proyecto en ${level.label}`,
+        description: `Sin actividad real en ${days} días.`,
+        days,
+      });
+    });
+
+    const severityScore: Record<AlertSeverity, number> = { critical: 0, warning: 1, info: 2 };
+    return alerts.sort((a, b) => {
+      const severityDiff = severityScore[a.severity] - severityScore[b.severity];
+      if (severityDiff !== 0) return severityDiff;
+      const aDate = parseDate(a.dueAt)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+      const bDate = parseDate(b.dueAt)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+      if (aDate !== bDate) return aDate - bDate;
+      return b.days - a.days;
+    });
+  },
+
+  getProjectAlert: (projectId: string): ProjectAlert | undefined => {
+    return storage.getProjectAlerts().find((alert) => alert.projectId === projectId);
+  },
+
+  getCalendarEvents: (): CalendarEvent[] => {
+    const now = new Date();
+    const projects = storage.getProjects();
+    const projectById = new Map(projects.map((project) => [project.id, project]));
+    const events: CalendarEvent[] = [];
+
+    storage.getTasks().forEach((task) => {
+      const dueDate = parseDate(task.dueAt);
+      if (!dueDate) return;
+      const project = task.projectId ? projectById.get(task.projectId) : undefined;
+      events.push({
+        id: `task:${task.id}`,
+        type: task.kind === 'unblock' ? 'unblock_task' : 'task',
+        title: task.title,
+        description: task.notes || (project ? `Proyecto: ${project.name}` : 'Tarea sin proyecto'),
+        date: task.dueAt!,
+        projectId: task.projectId,
+        taskId: task.id,
+        status: task.status === 'Hecha' ? 'done' : dateStatus(dueDate, now),
+      });
+    });
+
+    projects.forEach((project) => {
+      const postponedDate = parseDate(project.postponedUntil);
+      if (project.status === 'Aplazado' && postponedDate) {
+        events.push({
+          id: `postponed:${project.id}`,
+          type: 'postponed_review',
+          title: `Revisar: ${project.name}`,
+          description: project.postponedNextAction || project.postponedReason || 'Revisión de proyecto aplazado.',
+          date: project.postponedUntil!,
+          projectId: project.id,
+          status: dateStatus(postponedDate, now),
+        });
+      }
+
+      const blockedDate = parseDate(project.blockedReviewAt);
+      if (project.status === 'Bloqueado' && blockedDate) {
+        events.push({
+          id: `blocked:${project.id}`,
+          type: 'blocked_review',
+          title: `Bloqueo: ${project.name}`,
+          description: project.blockedReason || 'Revisión de bloqueo.',
+          date: project.blockedReviewAt!,
+          projectId: project.id,
+          taskId: project.unblockTaskId,
+          status: dateStatus(blockedDate, now),
+        });
+      }
+    });
+
+    const typeOrder: Record<CalendarEventType, number> = {
+      unblock_task: 0,
+      blocked_review: 1,
+      postponed_review: 2,
+      task: 3,
+    };
+
+    return events.sort((a, b) => {
+      const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
+      if (dateDiff !== 0) return dateDiff;
+      return typeOrder[a.type] - typeOrder[b.type];
+    });
   },
 
   getStagnantProjects: (daysThreshold: number = 3): Project[] => {
-    const projects = storage.getProjects();
-    const now = new Date();
-    const threshold = daysThreshold * 24 * 60 * 60 * 1000;
-
-    return projects.filter(p => {
-      // Only check active or blocked projects, or the current NOW project
-      if (p.status === 'Terminado' || p.status === 'Idea') return false;
-
-      const logs = storage.getLogs(p.id);
-      const lastActivity = logs.length > 0 
-        ? new Date(logs[0].timestamp) 
-        : new Date(p.createdAt);
-
-      const diff = now.getTime() - lastActivity.getTime();
-      return diff > threshold;
-    });
+    return storage.getProjects().filter((project) =>
+      project.status === 'Activo' && storage.getProjectStagnationDays(project.id) >= daysThreshold
+    );
   }
 };

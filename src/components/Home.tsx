@@ -1,8 +1,8 @@
 import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { storage } from '../lib/storage';
-import { Project } from '../types';
+import { Project, ProjectAlert } from '../types';
 import { useNavigate } from 'react-router-dom';
-import { ChevronRight, Target, Clock, AlertCircle, CheckCircle2, Plus, AlertTriangle, ListChecks } from 'lucide-react';
+import { CalendarDays, ChevronRight, Target, Clock, AlertCircle, CheckCircle2, Plus, AlertTriangle, ListChecks } from 'lucide-react';
 import { cn } from '../lib/utils';
 import LoadingSpinner from './LoadingSpinner';
 import PriorityReviewSheet from './PriorityReviewSheet';
@@ -22,32 +22,28 @@ export default function Home() {
     setProjects(p);
   }, []);
 
-  const nowProject = projects.find((p) => p.priority === 'NOW' && p.status !== 'Terminado');
-  const nextProjects = projects.filter((p) => p.priority !== 'NOW' && p.status !== 'Terminado')
+  const nowProject = projects.find((p) => p.priority === 'NOW' && p.status === 'Activo');
+  const nextProjects = projects.filter((p) => p.priority !== 'NOW' && (p.status === 'Activo' || p.status === 'Idea'))
     .sort((a, b) => {
       const pA = a.priority.replace('Next', '');
       const pB = b.priority.replace('Next', '');
       return parseInt(pA) - parseInt(pB);
     });
   const finishedProjects = projects.filter((p) => p.status === 'Terminado');
-  const stagnantProjects = storage.getStagnantProjects(3); // 3 days threshold
+  const alerts = storage.getProjectAlerts();
+  const pendingAlerts = alerts.filter((alert) => alert.severity !== 'info').slice(0, 5);
 
   const getStagnationLevel = (id: string) => {
-    const days = storage.getProjectStagnationDays(id);
-    if (days >= 15) return { level: 3, color: 'text-red-600 dark:text-red-400', label: 'Crítico', icon: AlertTriangle, bg: 'bg-red-500/10', border: 'border-red-500/20', iconColor: 'bg-red-600' };
-    if (days >= 7) return { level: 2, color: 'text-orange-700 dark:text-orange-500', label: 'Alerta', icon: AlertTriangle, bg: 'bg-orange-600/10', border: 'border-orange-600/20', iconColor: 'bg-orange-700' };
-    if (days >= 3) return { level: 1, color: 'text-orange-500 dark:text-orange-400', label: 'Rezago', icon: AlertTriangle, bg: 'bg-orange-500/10', border: 'border-orange-500/20', iconColor: 'bg-orange-500' };
+    const alert = alerts.find((item) => item.projectId === id && item.type === 'stagnant');
+    if (alert?.severity === 'critical') return { level: 3, color: 'text-red-600 dark:text-red-400', label: 'Crítico', icon: AlertTriangle, bg: 'bg-red-500/10', border: 'border-red-500/20', iconColor: 'bg-red-600' };
+    if (alert?.severity === 'warning') return { level: 2, color: 'text-orange-700 dark:text-orange-500', label: 'Rezago', icon: AlertTriangle, bg: 'bg-orange-600/10', border: 'border-orange-600/20', iconColor: 'bg-orange-700' };
     return null;
   };
 
-  const getBannerInfo = () => {
-    const levels = stagnantProjects.map(p => getStagnationLevel(p.id)).filter(Boolean);
-    if (levels.some(l => l?.level === 3)) return { color: 'text-red-600 dark:text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/20', iconColor: 'bg-red-600', label: 'Crítico' };
-    if (levels.some(l => l?.level === 2)) return { color: 'text-orange-700 dark:text-orange-500', bg: 'bg-orange-600/10', border: 'border-orange-600/20', iconColor: 'bg-orange-700', label: 'Alerta' };
-    return { color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/20', iconColor: 'bg-orange-500', label: 'Rezago' };
+  const getAlertCardStyle = (alert: ProjectAlert) => {
+    if (alert.severity === 'critical') return 'border-red-500/20 bg-red-500/10 text-red-600';
+    return 'border-orange-500/20 bg-orange-500/10 text-orange-700 dark:text-orange-500';
   };
-
-  const bannerInfo = getBannerInfo();
 
   const handleStartProject = (id: string) => {
     storage.updateProject(id, { priority: 'NOW', status: 'Activo' });
@@ -105,21 +101,33 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Stagnant Warning */}
-      {stagnantProjects.length > 0 && (
-        <div className={cn("mx-2 p-3 rounded-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-4 duration-500 border", bannerInfo.bg, bannerInfo.border)}>
-          <div className={cn("w-9 h-9 rounded-lg flex items-center justify-center text-white shrink-0 shadow-lg", bannerInfo.iconColor)}>
-            <AlertTriangle size={20} strokeWidth={2.5} />
+      {pendingAlerts.length > 0 && (
+        <section className="space-y-3">
+          <div className="flex items-center justify-between px-2">
+            <label className="label-caps">Acciones pendientes</label>
+            <button type="button" onClick={() => navigate('/calendar')} className="flex items-center gap-1.5 text-[8px] font-bold uppercase tracking-[0.12em] text-[var(--accent)]">
+              <CalendarDays size={12} />
+              Agenda
+            </button>
           </div>
-          <div className="space-y-0.5">
-            <p className={cn("text-xs font-bold", bannerInfo.color)}>
-              Atención: {stagnantProjects.length} {stagnantProjects.length === 1 ? 'proyecto' : 'proyectos'} en {bannerInfo.label}
-            </p>
-            <p className={cn("text-[9px] uppercase font-bold tracking-wider opacity-70", bannerInfo.color)}>
-              Requieren tu atención inmediata para mantener el flujo
-            </p>
+          <div className="space-y-2">
+            {pendingAlerts.map((alert) => (
+              <div key={alert.id} className={cn("rounded-xl border p-3", getAlertCardStyle(alert))}>
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-current/10">
+                    <AlertTriangle size={17} strokeWidth={2.5} />
+                  </div>
+                  <button type="button" onClick={() => navigate(`/project/${alert.projectId}`)} className="min-w-0 flex-1 text-left">
+                    <p className="text-xs font-black uppercase tracking-[0.08em]">{alert.title}</p>
+                    <p className="mt-1 truncate text-sm font-bold text-[var(--text-main)]">{alert.projectName}</p>
+                    <p className="mt-0.5 line-clamp-2 text-[11px] font-medium leading-relaxed opacity-80">{alert.description}</p>
+                  </button>
+                  <ChevronRight size={16} strokeWidth={2.5} />
+                </div>
+              </div>
+            ))}
           </div>
-        </div>
+        </section>
       )}
 
       {/* NOW Section */}

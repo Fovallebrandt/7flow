@@ -10,6 +10,8 @@ const CreateProject = lazy(() => import('./components/CreateProject'));
 const ProjectDetail = lazy(() => import('./components/ProjectDetail'));
 const Profile = lazy(() => import('./components/Profile'));
 const Inventory = lazy(() => import('./components/Inventory'));
+const Calendar = lazy(() => import('./components/Calendar'));
+const Tasks = lazy(() => import('./components/Tasks'));
 
 function AppShell() {
   const { theme } = useTheme();
@@ -31,6 +33,8 @@ function AppShell() {
               <Route path="/project/:id" element={<ProjectDetail />} />
               <Route path="/profile" element={<Profile />} />
               <Route path="/inventory" element={<Inventory />} />
+              <Route path="/calendar" element={<Calendar />} />
+              <Route path="/tasks" element={<Tasks />} />
             </Routes>
           </Suspense>
         </Layout>

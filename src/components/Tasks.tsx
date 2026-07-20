@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { CheckCircle2, ChevronRight, Circle, Clock3, Edit2, Plus, Save, Trash2, X } from 'lucide-react';
+import { CheckCircle2, ChevronRight, Circle, Clock3, Edit2, Plus, Save, Trash2, Unlock, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { storage } from '../lib/storage';
@@ -30,6 +30,7 @@ export default function Tasks({ onClose, embedded = false, startCreate = false }
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [isTaskSheetOpen, setIsTaskSheetOpen] = useState(false);
   const [deleteCandidate, setDeleteCandidate] = useState<Task | null>(null);
+  const [unblockDecisionTask, setUnblockDecisionTask] = useState<Task | null>(null);
 
   const activeTasks = tasks.filter((task) => task.status !== 'Hecha' && task.status !== 'Cancelada');
   const completedTasks = tasks.filter((task) => task.status === 'Hecha');
@@ -39,10 +40,59 @@ export default function Tasks({ onClose, embedded = false, startCreate = false }
   const refreshTasks = () => setTasks(storage.getTasks());
 
   const handleToggleDone = (task: Task) => {
-    storage.updateTask(task.id, {
-      status: task.status === 'Hecha' ? 'Pendiente' : 'Hecha',
-    });
+    const nextStatus = task.status === 'Hecha' ? 'Pendiente' : 'Hecha';
+    storage.updateTask(task.id, { status: nextStatus });
+    if (nextStatus === 'Hecha' && task.kind === 'unblock') {
+      const project = task.projectId ? storage.getProject(task.projectId) : undefined;
+      if (project?.status === 'Bloqueado') {
+        setUnblockDecisionTask({ ...task, status: 'Hecha', completedAt: new Date().toISOString() });
+      }
+    }
     refreshTasks();
+  };
+
+  const moveProjectToNow = (projectId: string) => {
+    storage.getProjects().forEach((project) => {
+      if (project.id !== projectId && project.priority === 'NOW' && project.status !== 'Terminado') {
+        storage.updateProject(project.id, { priority: 'Next1' });
+      }
+    });
+    storage.updateProject(projectId, {
+      priority: 'NOW',
+      status: 'Activo',
+      blockedReason: undefined,
+      blockedReviewAt: undefined,
+      unblockTaskId: undefined,
+      previousStatus: undefined,
+      previousPriority: undefined,
+    });
+  };
+
+  const handleUnblockDecision = (action: 'active' | 'now' | 'project' | 'blocked') => {
+    if (!unblockDecisionTask?.projectId) {
+      setUnblockDecisionTask(null);
+      return;
+    }
+    if (action === 'active') {
+      storage.updateProject(unblockDecisionTask.projectId, {
+        status: 'Activo',
+        blockedReason: undefined,
+        blockedReviewAt: undefined,
+        unblockTaskId: undefined,
+        previousStatus: undefined,
+        previousPriority: undefined,
+      });
+      toast.success('Proyecto reactivado');
+    }
+    if (action === 'now') {
+      moveProjectToNow(unblockDecisionTask.projectId);
+      toast.success('Proyecto reactivado en NOW');
+    }
+    if (action === 'project') {
+      onClose?.();
+      navigate(`/project/${unblockDecisionTask.projectId}`);
+    }
+    setUnblockDecisionTask(null);
   };
 
   const handleDelete = () => {
@@ -171,6 +221,36 @@ export default function Tasks({ onClose, embedded = false, startCreate = false }
         }}
       />
 
+      {unblockDecisionTask && (
+        <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/55 p-3 backdrop-blur-sm sm:items-center">
+          <div className="w-full max-w-md space-y-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-5 shadow-2xl">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
+                <Unlock size={20} strokeWidth={2.5} />
+              </div>
+              <div>
+                <p className="label-caps !ml-0 !mb-1">Tarea de desbloqueo hecha</p>
+                <h3 className="text-base font-bold text-[var(--text-main)]">{unblockDecisionTask.title}</h3>
+              </div>
+            </div>
+            <div className="grid gap-2">
+              <button type="button" onClick={() => handleUnblockDecision('active')} className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] px-4 py-3 text-left text-sm font-bold text-[var(--text-main)]">
+                Desbloquear y continuar
+              </button>
+              <button type="button" onClick={() => handleUnblockDecision('now')} className="rounded-xl border border-[var(--accent)] bg-[var(--accent)] px-4 py-3 text-left text-sm font-bold text-[var(--accent-foreground)]">
+                Desbloquear y mover a NOW
+              </button>
+              <button type="button" onClick={() => handleUnblockDecision('project')} className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] px-4 py-3 text-left text-sm font-bold text-[var(--text-main)]">
+                Abrir proyecto para decidir
+              </button>
+              <button type="button" onClick={() => handleUnblockDecision('blocked')} className="rounded-xl px-4 py-3 text-left text-sm font-bold text-[var(--text-dim)]">
+                Seguir bloqueado
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <ConfirmDialog
         open={Boolean(deleteCandidate)}
         title="Eliminar tarea"
@@ -293,6 +373,12 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, project, onToggleDone, onEdit
             <span className="rounded-full border border-[var(--border-subtle)] bg-[var(--bg-app)] px-2 py-0.5 text-[6px] font-bold uppercase tracking-widest text-[var(--text-dim)]">
               {task.status}
             </span>
+            {task.kind === 'unblock' && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-red-500/20 bg-red-500/10 px-2 py-0.5 text-[6px] font-bold uppercase tracking-widest text-red-600">
+                <Unlock size={9} />
+                Desbloqueo
+              </span>
+            )}
             {task.dueAt && (
               <span className="inline-flex items-center gap-1 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-app)] px-2 py-0.5 text-[6px] font-bold uppercase tracking-widest text-[var(--text-dim)]">
                 <Clock3 size={10} />
@@ -355,6 +441,7 @@ export function TaskEditorSheet({ open, task, projects, projectId, onClose, onSa
       notes: notes.trim(),
       priority,
       status,
+      kind: task?.kind || 'regular',
       projectId: selectedProjectId || undefined,
       dueAt: dueAt ? new Date(`${dueAt}T12:00:00`).toISOString() : undefined,
     };

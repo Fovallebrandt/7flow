@@ -1,11 +1,9 @@
-import React, { lazy, Suspense, useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Plus, Home, Package, User } from 'lucide-react';
+import { CalendarDays, ListChecks, Plus, Home, Package, User } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { storage } from '../lib/storage';
 import { PwaInstallProvider } from '../lib/pwaInstall';
-
-const TasksSheet = lazy(() => import('./Tasks').then((module) => ({ default: module.TasksSheet })));
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -16,7 +14,6 @@ interface LayoutProps {
 export default function Layout({ children, title, showNav = true }: LayoutProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const [isTasksOpen, setIsTasksOpen] = useState(false);
 
   useEffect(() => {
     storage.syncProjectTimeStats();
@@ -76,15 +73,9 @@ export default function Layout({ children, title, showNav = true }: LayoutProps)
       {/* Bottom Background Block (Stylistic Anchor) */}
       <div className="fixed bottom-0 left-0 right-0 h-20 bg-[var(--bg-card)] rounded-t-[24px] border-t border-[var(--border-subtle)] z-0 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]" />
 
-      {isTasksOpen && (
-        <Suspense fallback={null}>
-          <TasksSheet open={isTasksOpen} onClose={() => setIsTasksOpen(false)} />
-        </Suspense>
-      )}
-
       {/* Bottom Navigation */}
       {showNav && (
-        <nav className="fixed bottom-[calc(2rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 bg-[var(--nav-bg)]/90 backdrop-blur-2xl border border border-[var(--border-subtle)] px-7 py-3 flex gap-9 items-center rounded-[32px] shadow-2xl shadow-black/10 z-50">
+        <nav className="fixed bottom-[calc(2rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 bg-[var(--nav-bg)]/90 backdrop-blur-2xl border border border-[var(--border-subtle)] px-4 py-3 flex gap-5 items-center rounded-[32px] shadow-2xl shadow-black/10 z-50">
           <button
             onClick={() => navigate('/')}
             className={cn(
@@ -97,10 +88,32 @@ export default function Layout({ children, title, showNav = true }: LayoutProps)
           </button>
 
           <button
+            onClick={() => navigate('/calendar')}
+            className={cn(
+              "flex flex-col items-center gap-1.5",
+              isActive('/calendar') ? "text-[var(--accent)]" : "text-[var(--text-dim)] hover:text-[var(--accent)]"
+            )}
+          >
+            <CalendarDays size={20} strokeWidth={isActive('/calendar') ? 3 : 2} />
+            <span className="text-[9px] font-bold uppercase tracking-[0.1em]">Agenda</span>
+          </button>
+
+          <button
             onClick={() => navigate('/create')}
             className="bg-[var(--accent)] w-14 h-14 rounded-full text-[var(--accent-foreground)] shadow-xl shadow-[var(--accent)]/20 hover:opacity-90 flex items-center justify-center -mt-2 border-4 border-[var(--bg-app)]"
           >
             <Plus size={28} strokeWidth={3} />
+          </button>
+
+          <button
+            onClick={() => navigate('/tasks')}
+            className={cn(
+              "flex flex-col items-center gap-1.5",
+              isActive('/tasks') ? "text-[var(--accent)]" : "text-[var(--text-dim)] hover:text-[var(--accent)]"
+            )}
+          >
+            <ListChecks size={20} strokeWidth={isActive('/tasks') ? 3 : 2} />
+            <span className="text-[9px] font-bold uppercase tracking-[0.1em]">Tareas</span>
           </button>
 
           <button

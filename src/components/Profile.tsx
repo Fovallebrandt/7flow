@@ -35,7 +35,7 @@ export default function Profile() {
 
   const stats = {
     total: projects.length,
-    active: projects.filter(p => p.status === 'Activo' || p.priority === 'NOW').length,
+    active: projects.filter(p => p.status === 'Activo').length,
     finished: projects.filter(p => p.status === 'Terminado').length,
     idea: projects.filter(p => p.status === 'Idea').length
   };

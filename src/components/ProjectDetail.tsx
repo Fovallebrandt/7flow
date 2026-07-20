@@ -3,7 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { storage } from '../lib/storage';
 import { fileToProjectPhoto } from '../lib/image';
 import { Project, LogEntry, ProjectStatus, Priority, ProjectPhoto, ProjectPhotoStage, Task } from '../types';
-import { ArrowLeft, Edit3, CheckCircle2, Clock, History, Send, Target, ChevronRight, Check, Package as PackageIcon, AlertTriangle, Camera, Factory, ListChecks, Plus, Circle } from 'lucide-react';
+import { ArrowLeft, Edit3, CheckCircle2, Clock, History, Send, Target, ChevronRight, Check, Package as PackageIcon, AlertTriangle, Camera, Factory, ListChecks, Plus, Circle, PauseCircle, Ban, Unlock } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { formatMinutes } from '../lib/direction';
 import { toast } from 'sonner';
@@ -34,11 +34,20 @@ export default function ProjectDetail() {
   const [isPhotoOpen, setIsPhotoOpen] = useState(false);
   const [isProductionOpen, setIsProductionOpen] = useState(false);
   const [isTaskSheetOpen, setIsTaskSheetOpen] = useState(false);
+  const [isPostponeOpen, setIsPostponeOpen] = useState(false);
+  const [isBlockOpen, setIsBlockOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [unblockDecisionTask, setUnblockDecisionTask] = useState<Task | null>(null);
+  const [postponedUntil, setPostponedUntil] = useState('');
+  const [postponedReason, setPostponedReason] = useState('');
+  const [postponedNextAction, setPostponedNextAction] = useState('');
+  const [blockedReason, setBlockedReason] = useState('');
+  const [blockedReviewAt, setBlockedReviewAt] = useState('');
+  const [unblockTaskTitle, setUnblockTaskTitle] = useState('');
+  const [unblockTaskNotes, setUnblockTaskNotes] = useState('');
   const [photoReminderMode, setPhotoReminderMode] = useState(false);
   const [pendingFinishOptions, setPendingFinishOptions] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [stagnationDays, setStagnationDays] = useState(0);
   const [beforePhoto, setBeforePhoto] = useState<ProjectPhoto | undefined>(id ? storage.getProjectPhoto(id, 'before') : undefined);
   const [afterPhoto, setAfterPhoto] = useState<ProjectPhoto | undefined>(id ? storage.getProjectPhoto(id, 'after') : undefined);
   const [photoLoadingStage, setPhotoLoadingStage] = useState<ProjectPhotoStage | null>(null);
@@ -61,6 +70,17 @@ export default function ProjectDetail() {
     setProjectTasks(storage.getProjectTasks(projectId));
   };
 
+  const refreshProject = (projectId: string) => {
+    const updatedProject = storage.getProject(projectId);
+    if (updatedProject) {
+      setProject(updatedProject);
+      setNewNextAction(updatedProject.nextAction || '');
+    }
+  };
+
+  const toDateInput = (value?: string) => value ? value.slice(0, 10) : '';
+  const dateToIso = (value: string) => new Date(`${value}T12:00:00`).toISOString();
+
   useEffect(() => {
     if (!id) return;
 
@@ -71,9 +91,6 @@ export default function ProjectDetail() {
       setLogs(storage.getLogs(id));
       refreshProjectTasks(id);
       
-      // Check stagnation days
-      const days = storage.getProjectStagnationDays(id);
-      setStagnationDays(days);
       syncPhotos(id);
       storage.syncProjectPhotosToInventory(id);
       
@@ -102,7 +119,8 @@ export default function ProjectDetail() {
       
       const updates: Partial<Project> = {
         nextAction: isFinished ? '' : newNextAction.trim(),
-        status: isFinished ? 'Terminado' : (project?.status === 'Idea' ? 'Activo' : project?.status)
+        status: isFinished ? 'Terminado' : (project?.status === 'Idea' || project?.status === 'Aplazado' ? 'Activo' : project?.status),
+        lastActivityAt: logData.timestamp,
       };
       
       storage.updateProject(id, updates);
@@ -126,7 +144,6 @@ export default function ProjectDetail() {
       const updatedProject = storage.getProject(id);
       if (updatedProject) setProject(updatedProject);
       setLogs(storage.getLogs(id));
-      setStagnationDays(0); // Reset stagnation after activity
 
       setNewLog('');
       setNewNextAction('');
@@ -138,12 +155,104 @@ export default function ProjectDetail() {
 
   const handleStatusChange = (status: ProjectStatus) => {
     if (!id || !project) return;
+    if (status === 'Bloqueado') {
+      setBlockedReason(project.blockedReason || '');
+      setBlockedReviewAt(toDateInput(project.blockedReviewAt));
+      setUnblockTaskTitle(project.nextAction ? `Desbloquear: ${project.nextAction}` : `Desbloquear ${project.name}`);
+      setUnblockTaskNotes(project.blockedReason || '');
+      setIsBlockOpen(true);
+      return;
+    }
+    if (status === 'Aplazado') {
+      setPostponedUntil(toDateInput(project.postponedUntil));
+      setPostponedReason(project.postponedReason || '');
+      setPostponedNextAction(project.postponedNextAction || project.nextAction || '');
+      setIsPostponeOpen(true);
+      return;
+    }
+
     try {
-      storage.updateProject(id, { status });
-      setProject({ ...project, status });
+      const updates: Partial<Project> = { status };
+      if (status === 'Activo') {
+        Object.assign(updates, {
+          postponedUntil: undefined,
+          postponedReason: undefined,
+          postponedNextAction: undefined,
+          blockedReason: undefined,
+          blockedReviewAt: undefined,
+          unblockTaskId: undefined,
+          previousStatus: undefined,
+          previousPriority: undefined,
+        });
+      }
+      storage.updateProject(id, updates);
+      refreshProject(id);
     } catch (error) {
       console.error('Error updating status:', error);
     }
+  };
+
+  const handlePostponeSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!id || !project) return;
+    if (!postponedUntil || !postponedReason.trim()) {
+      toast.error('Aplazar requiere fecha y motivo');
+      return;
+    }
+
+    const updates: Partial<Project> = {
+      status: 'Aplazado',
+      postponedUntil: dateToIso(postponedUntil),
+      postponedReason: postponedReason.trim(),
+      postponedNextAction: postponedNextAction.trim(),
+      previousStatus: project.status === 'Aplazado' ? project.previousStatus : project.status,
+      previousPriority: project.priority,
+      blockedReason: undefined,
+      blockedReviewAt: undefined,
+      unblockTaskId: undefined,
+    };
+
+    storage.updateProject(id, updates);
+    refreshProject(id);
+    setIsPostponeOpen(false);
+    toast.success('Proyecto aplazado');
+  };
+
+  const handleBlockSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!id || !project) return;
+    if (!blockedReason.trim() || !blockedReviewAt || !unblockTaskTitle.trim()) {
+      toast.error('Bloquear requiere motivo, revisión y tarea de desbloqueo');
+      return;
+    }
+
+    const dueAt = dateToIso(blockedReviewAt);
+    const taskId = storage.addTask({
+      title: unblockTaskTitle.trim(),
+      notes: unblockTaskNotes.trim() || blockedReason.trim(),
+      status: 'Pendiente',
+      priority: 'Hoy',
+      kind: 'unblock',
+      projectId: id,
+      dueAt,
+    });
+
+    storage.updateProject(id, {
+      status: 'Bloqueado',
+      blockedReason: blockedReason.trim(),
+      blockedReviewAt: dueAt,
+      unblockTaskId: taskId,
+      previousStatus: project.status === 'Bloqueado' ? project.previousStatus : project.status,
+      previousPriority: project.priority,
+      postponedUntil: undefined,
+      postponedReason: undefined,
+      postponedNextAction: undefined,
+    });
+
+    refreshProject(id);
+    refreshProjectTasks(id);
+    setIsBlockOpen(false);
+    toast.success('Proyecto bloqueado', { description: 'Se creó la tarea de desbloqueo.' });
   };
 
   const handlePriorityChange = (priority: Priority) => {
@@ -166,6 +275,26 @@ export default function ProjectDetail() {
     } catch (error) {
       console.error('Error updating priority:', error);
     }
+  };
+
+  const moveProjectToNow = () => {
+    if (!id || !project) return;
+    const projects = storage.getProjects();
+    projects.forEach(p => {
+      if (p.id !== id && p.priority === 'NOW' && p.status !== 'Terminado') {
+        storage.updateProject(p.id, { priority: 'Next1' });
+      }
+    });
+    storage.updateProject(id, {
+      priority: 'NOW',
+      status: 'Activo',
+      blockedReason: undefined,
+      blockedReviewAt: undefined,
+      unblockTaskId: undefined,
+      previousStatus: undefined,
+      previousPriority: undefined,
+    });
+    refreshProject(id);
   };
 
   const handleProductionToggle = () => {
@@ -285,16 +414,54 @@ export default function ProjectDetail() {
   const handleToggleTaskDone = (task: Task) => {
     if (!id) return;
 
-    storage.updateTask(task.id, {
-      status: task.status === 'Hecha' ? 'Pendiente' : 'Hecha',
-    });
+    const nextStatus = task.status === 'Hecha' ? 'Pendiente' : 'Hecha';
+    storage.updateTask(task.id, { status: nextStatus });
     refreshProjectTasks(id);
+    refreshProject(id);
+    if (nextStatus === 'Hecha' && task.kind === 'unblock' && project?.status === 'Bloqueado') {
+      setUnblockDecisionTask({ ...task, status: 'Hecha', completedAt: new Date().toISOString() });
+    }
+  };
+
+  const handleUnblockDecision = (action: 'active' | 'now' | 'another' | 'blocked') => {
+    if (!id || !project) return;
+    if (action === 'active') {
+      storage.updateProject(id, {
+        status: 'Activo',
+        blockedReason: undefined,
+        blockedReviewAt: undefined,
+        unblockTaskId: undefined,
+        previousStatus: undefined,
+        previousPriority: undefined,
+      });
+      refreshProject(id);
+      toast.success('Proyecto reactivado');
+    }
+    if (action === 'now') {
+      moveProjectToNow();
+      toast.success('Proyecto reactivado en NOW');
+    }
+    if (action === 'another') {
+      setBlockedReason(project.blockedReason || '');
+      setBlockedReviewAt('');
+      setUnblockTaskTitle(`Siguiente desbloqueo: ${project.name}`);
+      setUnblockTaskNotes('');
+      setIsBlockOpen(true);
+    }
+    setUnblockDecisionTask(null);
+  };
+
+  const getAlertStyle = () => {
+    const alert = id ? storage.getProjectAlert(id) : undefined;
+    if (!alert) return null;
+    if (alert.severity === 'critical') return { alert, color: 'text-red-600 dark:text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/20', label: alert.title, iconColor: 'bg-red-600', dotColor: 'bg-red-600' };
+    if (alert.severity === 'warning') return { alert, color: 'text-orange-700 dark:text-orange-500', bg: 'bg-orange-600/10', border: 'border-orange-600/20', label: alert.title, iconColor: 'bg-orange-700', dotColor: 'bg-orange-700' };
+    return { alert, color: 'text-sky-700 dark:text-sky-400', bg: 'bg-sky-500/10', border: 'border-sky-500/20', label: alert.title, iconColor: 'bg-sky-600', dotColor: 'bg-sky-600' };
   };
 
   const getStagnationLevel = () => {
-    if (stagnationDays >= 15) return { level: 3, color: 'text-red-600 dark:text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/20', label: 'Crítico', days: '15+', iconColor: 'bg-red-600', dotColor: 'bg-red-600' };
-    if (stagnationDays >= 7) return { level: 2, color: 'text-orange-700 dark:text-orange-500', bg: 'bg-orange-600/10', border: 'border-orange-600/20', label: 'Alerta', days: '7+', iconColor: 'bg-orange-700', dotColor: 'bg-orange-700' };
-    if (stagnationDays >= 3) return { level: 1, color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/20', label: 'Rezago', days: '3+', iconColor: 'bg-orange-500', dotColor: 'bg-orange-500' };
+    const alert = getAlertStyle();
+    if (alert) return alert;
     return null;
   };
 
@@ -476,6 +643,112 @@ export default function ProjectDetail() {
         }}
       />
 
+      {isPostponeOpen && (
+        <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/55 p-3 backdrop-blur-sm sm:items-center">
+          <form onSubmit={handlePostponeSubmit} className="w-full max-w-md space-y-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-5 shadow-2xl">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-sky-500/10 text-sky-600">
+                <PauseCircle size={20} strokeWidth={2.5} />
+              </div>
+              <div>
+                <p className="label-caps !ml-0 !mb-1">Aplazar proyecto</p>
+                <h3 className="text-base font-bold text-[var(--text-main)]">{project.name}</h3>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="label-caps">Fecha de revisión</label>
+              <input type="date" value={postponedUntil} onChange={(event) => setPostponedUntil(event.target.value)} className="input-clean text-sm font-bold" />
+            </div>
+            <div className="space-y-2">
+              <label className="label-caps">Motivo</label>
+              <textarea value={postponedReason} onChange={(event) => setPostponedReason(event.target.value)} className="input-clean h-20 resize-none text-sm" placeholder="Por qué conviene sacarlo del flujo ahora..." />
+            </div>
+            <div className="space-y-2">
+              <label className="label-caps">Próxima acción al volver</label>
+              <input value={postponedNextAction} onChange={(event) => setPostponedNextAction(event.target.value)} className="input-clean text-sm" placeholder="Qué revisar o ejecutar ese día" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setIsPostponeOpen(false)} className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] px-4 py-3 text-[9px] font-bold uppercase tracking-widest text-[var(--text-dim)]">
+                Cancelar
+              </button>
+              <button type="submit" className="rounded-xl bg-[var(--accent)] px-4 py-3 text-[9px] font-bold uppercase tracking-widest text-[var(--accent-foreground)]">
+                Aplazar
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {isBlockOpen && (
+        <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/55 p-3 backdrop-blur-sm sm:items-center">
+          <form onSubmit={handleBlockSubmit} className="w-full max-w-md space-y-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-5 shadow-2xl">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-red-500/10 text-red-600">
+                <Ban size={20} strokeWidth={2.5} />
+              </div>
+              <div>
+                <p className="label-caps !ml-0 !mb-1">Bloquear proyecto</p>
+                <h3 className="text-base font-bold text-[var(--text-main)]">{project.name}</h3>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="label-caps">Motivo del bloqueo</label>
+              <textarea value={blockedReason} onChange={(event) => setBlockedReason(event.target.value)} className="input-clean h-20 resize-none text-sm" placeholder="Qué impide avanzar..." />
+            </div>
+            <div className="space-y-2">
+              <label className="label-caps">Tarea que desbloquea</label>
+              <input value={unblockTaskTitle} onChange={(event) => setUnblockTaskTitle(event.target.value)} className="input-clean text-sm font-bold" placeholder="Acción concreta para desbloquear" />
+            </div>
+            <div className="space-y-2">
+              <label className="label-caps">Descripción de la tarea</label>
+              <textarea value={unblockTaskNotes} onChange={(event) => setUnblockTaskNotes(event.target.value)} className="input-clean h-16 resize-none text-sm" placeholder="Dependencia, persona, criterio o contexto" />
+            </div>
+            <div className="space-y-2">
+              <label className="label-caps">Fecha de revisión</label>
+              <input type="date" value={blockedReviewAt} onChange={(event) => setBlockedReviewAt(event.target.value)} className="input-clean text-sm font-bold" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setIsBlockOpen(false)} className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] px-4 py-3 text-[9px] font-bold uppercase tracking-widest text-[var(--text-dim)]">
+                Cancelar
+              </button>
+              <button type="submit" className="rounded-xl bg-red-600 px-4 py-3 text-[9px] font-bold uppercase tracking-widest text-white">
+                Bloquear
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {unblockDecisionTask && (
+        <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/55 p-3 backdrop-blur-sm sm:items-center">
+          <div className="w-full max-w-md space-y-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-5 shadow-2xl">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
+                <Unlock size={20} strokeWidth={2.5} />
+              </div>
+              <div>
+                <p className="label-caps !ml-0 !mb-1">Tarea de desbloqueo hecha</p>
+                <h3 className="text-base font-bold text-[var(--text-main)]">{unblockDecisionTask.title}</h3>
+              </div>
+            </div>
+            <div className="grid gap-2">
+              <button type="button" onClick={() => handleUnblockDecision('active')} className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] px-4 py-3 text-left text-sm font-bold text-[var(--text-main)]">
+                Desbloquear y continuar
+              </button>
+              <button type="button" onClick={() => handleUnblockDecision('now')} className="rounded-xl border border-[var(--accent)] bg-[var(--accent)] px-4 py-3 text-left text-sm font-bold text-[var(--accent-foreground)]">
+                Desbloquear y mover a NOW
+              </button>
+              <button type="button" onClick={() => handleUnblockDecision('another')} className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] px-4 py-3 text-left text-sm font-bold text-[var(--text-main)]">
+                Crear otra tarea de desbloqueo
+              </button>
+              <button type="button" onClick={() => handleUnblockDecision('blocked')} className="rounded-xl px-4 py-3 text-left text-sm font-bold text-[var(--text-dim)]">
+                Seguir bloqueado
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Finished Modal */}
       {showFinishedModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
@@ -551,94 +824,141 @@ export default function ProjectDetail() {
           <div className="flex-1 space-y-3">
             <div className="space-y-0.5">
               <p className={cn("text-xs font-bold", stagnation.color)}>
-                Este proyecto está en nivel de {stagnation.label}
+                {stagnation.label}
               </p>
               <p className={cn("text-[9px] uppercase font-bold tracking-wider opacity-70", stagnation.color)}>
-                No has registrado avances en {stagnationDays} días. ¿Qué tal un pequeño paso hoy?
+                {stagnation.alert.description}
               </p>
             </div>
-            {project.status !== 'Bloqueado' && (
-              <button
-                onClick={() => handleStatusChange('Bloqueado')}
-                className={cn("text-white text-[8px] font-black tracking-widest uppercase px-4 py-2 rounded-lg shadow-lg active:scale-95 transition-all", stagnation.iconColor)}
-              >
-                Mover a Bloqueado
-              </button>
-            )}
+            <div className="flex flex-wrap gap-2">
+              {project.status !== 'Bloqueado' && project.status !== 'Aplazado' && (
+                <>
+                  <button
+                    onClick={() => handleStatusChange('Aplazado')}
+                    className="text-[8px] font-black tracking-widest uppercase px-4 py-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-card)] text-[var(--text-main)] active:scale-95 transition-all"
+                  >
+                    Aplazar
+                  </button>
+                  <button
+                    onClick={() => handleStatusChange('Bloqueado')}
+                    className={cn("text-white text-[8px] font-black tracking-widest uppercase px-4 py-2 rounded-lg shadow-lg active:scale-95 transition-all", stagnation.iconColor)}
+                  >
+                    Bloquear
+                  </button>
+                </>
+              )}
+              {project.status === 'Aplazado' && (
+                <>
+                  <button
+                    onClick={() => handleStatusChange('Activo')}
+                    className={cn("text-white text-[8px] font-black tracking-widest uppercase px-4 py-2 rounded-lg shadow-lg active:scale-95 transition-all", stagnation.iconColor)}
+                  >
+                    Reactivar
+                  </button>
+                  <button
+                    onClick={() => handleStatusChange('Aplazado')}
+                    className="text-[8px] font-black tracking-widest uppercase px-4 py-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-card)] text-[var(--text-main)] active:scale-95 transition-all"
+                  >
+                    Reaplazar
+                  </button>
+                  <button
+                    onClick={() => handleStatusChange('Bloqueado')}
+                    className="text-[8px] font-black tracking-widest uppercase px-4 py-2 rounded-lg border border-red-500/20 bg-red-500/10 text-red-600 active:scale-95 transition-all"
+                  >
+                    Bloquear
+                  </button>
+                  <button
+                    onClick={() => handleStatusChange('Terminado')}
+                    className="text-[8px] font-black tracking-widest uppercase px-4 py-2 rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-600 active:scale-95 transition-all"
+                  >
+                    Terminar
+                  </button>
+                </>
+              )}
+              {project.status === 'Bloqueado' && (
+                <button
+                  onClick={() => handleStatusChange('Bloqueado')}
+                  className="text-[8px] font-black tracking-widest uppercase px-4 py-2 rounded-lg border border-red-500/20 bg-red-500/10 text-red-600 active:scale-95 transition-all"
+                >
+                  Actualizar bloqueo
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
 
-      <div className="space-y-3 px-1">
-        <div className="space-y-2">
-          <label className="label-caps">Estado</label>
-          <div className="flex gap-1.5 overflow-x-auto pb-1.5 no-scrollbar">
-            {(['Idea', 'Activo', 'Bloqueado', 'Terminado'] as ProjectStatus[]).map((s) => (
-              <button
-                key={s}
-                onClick={() => handleStatusChange(s)}
-                className={cn(
-                  "px-4 py-2 rounded-full text-[8px] font-bold uppercase tracking-[0.1em] transition-all whitespace-nowrap border active:scale-95",
-                  project.status === s ? "bg-[var(--accent)] border-[var(--accent)] text-[var(--accent-foreground)] shadow-md shadow-black/5" : "bg-[var(--bg-card)] text-[var(--text-dim)] border-[var(--border-subtle)] hover:border-[var(--border-active)]"
-                )}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
+      {/* Progress Section */}
+      <section className="space-y-3">
+        <div className="flex items-center gap-2 px-2">
+          <Send size={16} strokeWidth={2.5} className="text-[var(--accent)]" />
+          <label className="label-caps !ml-0 !mb-0">Avance</label>
         </div>
 
-        <div className="space-y-2">
-          <label className="label-caps">Prioridad</label>
-          <div className="flex items-end gap-2">
-            <div className="flex-1 overflow-x-auto pb-1.5 no-scrollbar">
-              <div className="flex gap-1.5">
-                {(['NOW', 'Next1', 'Next2', 'Next3'] as Priority[]).map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => handlePriorityChange(p)}
-                    className={cn(
-                      "px-4 py-2 rounded-full text-[8px] font-bold uppercase tracking-[0.1em] transition-all whitespace-nowrap flex items-center gap-1.5 border active:scale-95",
-                      project.priority === p ? "bg-[var(--accent)] border-[var(--accent)] text-[var(--accent-foreground)] shadow-md shadow-black/5" : "bg-[var(--bg-card)] text-[var(--text-dim)] border-[var(--border-subtle)] hover:border-[var(--border-active)]"
-                    )}
-                  >
-                    {p}
-                    {project.priority === p && <Check size={10} strokeWidth={3} />}
-                  </button>
-                ))}
-              </div>
+        <form onSubmit={handleAddLog} className="card-clean p-5 space-y-5 shadow-xl shadow-black/5">
+          <div className="space-y-2 pb-4 border-b border-[var(--border-subtle)]">
+            <div className="flex items-center gap-2 text-[var(--accent)]">
+              <Target size={14} strokeWidth={2.5} />
+              <label className="text-[7px] font-bold uppercase tracking-widest opacity-70">Siguiente Acción Actual</label>
             </div>
+            <p className="text-lg font-bold text-[var(--text-main)] tracking-tight leading-tight">
+              {project.nextAction || 'Definir el siguiente paso...'}
+            </p>
+          </div>
 
-            <button
-              type="button"
-              onClick={() => setIsPhotoOpen(true)}
-              className="relative flex h-10 w-10 shrink-0 flex-col items-center justify-center rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] text-[var(--text-dim)] shadow-sm transition-all hover:border-[var(--accent)] hover:text-[var(--accent)] active:scale-95"
-              aria-label="Abrir fotos del proyecto"
-            >
-              <Camera size={14} strokeWidth={2.5} />
-              <span className="mt-0.5 text-[7px] font-bold uppercase tracking-[0.12em]">Foto</span>
-              {photoCount > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 flex h-5 min-w-5 items-center justify-center rounded-full border border-[var(--bg-app)] bg-[var(--accent)] px-1 text-[9px] font-black text-[var(--accent-foreground)]">
-                  {photoCount}
-                </span>
-              )}
-            </button>
-
-            {isProductionEnabled && (
+          <textarea
+            required
+            value={newLog}
+            onChange={(e) => setNewLog(e.target.value)}
+            placeholder="¿Qué avanzaste?"
+            className="w-full bg-transparent border-none text-sm font-medium text-[var(--text-main)] placeholder:text-[var(--text-dim)] focus:ring-0 resize-none h-20"
+          />
+          <div className="pt-3 border-t border-[var(--border-subtle)] flex items-center justify-between">
+            <div className="flex-1 mr-4 space-y-3">
+              <input
+                type="text"
+                value={newNextAction}
+                onChange={(e) => setNewNextAction(e.target.value)}
+                placeholder="Nueva siguiente acción..."
+                disabled={isFinished}
+                className={cn(
+                  "w-full bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded-lg px-3 py-2.5 text-[8px] uppercase font-bold tracking-[0.1em] text-[var(--text-main)] placeholder:text-[var(--text-dim)] focus:border-[var(--border-active)] focus:outline-none transition-all shadow-inner",
+                  isFinished && "opacity-50 grayscale"
+                )}
+              />
               <button
                 type="button"
-                onClick={() => setIsProductionOpen(true)}
-                className="relative flex h-10 w-10 shrink-0 flex-col items-center justify-center rounded-xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-600 shadow-sm transition-all hover:border-emerald-500/40 hover:bg-emerald-500/15 active:scale-95"
-                aria-label="Abrir producción del proyecto"
+                onClick={() => setIsFinished(!isFinished)}
+                className={cn(
+                  "flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all active:scale-95",
+                  isFinished 
+                    ? "bg-green-500/10 border-green-500/30 text-green-500" 
+                    : "bg-[var(--bg-app)] border-[var(--border-subtle)] text-[var(--text-dim)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
+                )}
               >
-                <Factory size={14} strokeWidth={2.5} />
-                <span className="mt-0.5 text-[7px] font-bold uppercase tracking-[0.12em]">Prod</span>
+                <div className={cn(
+                  "w-4 h-4 rounded-full border flex items-center justify-center transition-all",
+                  isFinished ? "bg-green-500 border-green-500" : "border-[var(--border-subtle)]"
+                )}>
+                  {isFinished && <Check size={10} className="text-white" strokeWidth={4} />}
+                </div>
+                <span className="text-[8px] font-bold uppercase tracking-[0.1em]">Dar por finalizado</span>
               </button>
-            )}
+            </div>
+            <button
+              type="submit"
+              className={cn(
+                "p-4 rounded-2xl transition-all shadow-lg shadow-black/10",
+                isFinished 
+                  ? "bg-green-500 text-white hover:scale-105 active:scale-95" 
+                  : "bg-[var(--accent)] text-[var(--accent-foreground)] hover:scale-105 active:scale-95"
+              )}
+            >
+              <Send size={20} strokeWidth={2.5} />
+            </button>
           </div>
-        </div>
-
-      </div>
+        </form>
+      </section>
 
       {/* Project Tasks */}
       <section className="card-clean p-4 space-y-3">
@@ -694,6 +1014,17 @@ export default function ProjectDetail() {
                         <span className="rounded-full border border-[var(--border-subtle)] bg-[var(--bg-card)] px-2 py-0.5 text-[6px] font-bold uppercase tracking-widest text-[var(--text-dim)]">
                           {task.status}
                         </span>
+                        {task.kind === 'unblock' && (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-red-500/20 bg-red-500/10 px-2 py-0.5 text-[6px] font-bold uppercase tracking-widest text-red-600">
+                            <Unlock size={9} />
+                            Desbloqueo
+                          </span>
+                        )}
+                        {task.dueAt && (
+                          <span className="rounded-full border border-[var(--border-subtle)] bg-[var(--bg-card)] px-2 py-0.5 text-[6px] font-bold uppercase tracking-widest text-[var(--text-dim)]">
+                            {new Date(task.dueAt).toLocaleDateString('es-ES')}
+                          </span>
+                        )}
                       </div>
                     </button>
                   </div>
@@ -706,6 +1037,76 @@ export default function ProjectDetail() {
             <p className="text-[8px] font-bold uppercase tracking-[0.18em] text-[var(--text-dim)]">Sin tareas vinculadas</p>
           </div>
         )}
+      </section>
+
+      {/* Control */}
+      <section className="card-clean p-4 space-y-4">
+        <div className="flex items-center justify-between">
+          <label className="label-caps !ml-0 !mb-0">Control</label>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsPhotoOpen(true)}
+              className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] text-[var(--text-dim)] shadow-sm transition-all hover:border-[var(--accent)] hover:text-[var(--accent)] active:scale-95"
+              aria-label="Abrir fotos del proyecto"
+            >
+              <Camera size={15} strokeWidth={2.5} />
+              {photoCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 flex h-5 min-w-5 items-center justify-center rounded-full border border-[var(--bg-card)] bg-[var(--accent)] px-1 text-[9px] font-black text-[var(--accent-foreground)]">
+                  {photoCount}
+                </span>
+              )}
+            </button>
+
+            {isProductionEnabled && (
+              <button
+                type="button"
+                onClick={() => setIsProductionOpen(true)}
+                className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-600 shadow-sm transition-all hover:border-emerald-500/40 hover:bg-emerald-500/15 active:scale-95"
+                aria-label="Abrir producción del proyecto"
+              >
+                <Factory size={15} strokeWidth={2.5} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <label className="label-caps">Estado</label>
+          <div className="flex gap-1.5 overflow-x-auto pb-1.5 no-scrollbar">
+            {(['Idea', 'Activo', 'Bloqueado', 'Aplazado', 'Terminado'] as ProjectStatus[]).map((s) => (
+              <button
+                key={s}
+                onClick={() => handleStatusChange(s)}
+                className={cn(
+                  "px-4 py-2 rounded-full text-[8px] font-bold uppercase tracking-[0.1em] transition-all whitespace-nowrap border active:scale-95",
+                  project.status === s ? "bg-[var(--accent)] border-[var(--accent)] text-[var(--accent-foreground)] shadow-md shadow-black/5" : "bg-[var(--bg-app)] text-[var(--text-dim)] border-[var(--border-subtle)] hover:border-[var(--border-active)]"
+                )}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <label className="label-caps">Prioridad</label>
+          <div className="flex gap-1.5 overflow-x-auto pb-1.5 no-scrollbar">
+            {(['NOW', 'Next1', 'Next2', 'Next3'] as Priority[]).map((p) => (
+              <button
+                key={p}
+                onClick={() => handlePriorityChange(p)}
+                className={cn(
+                  "px-4 py-2 rounded-full text-[8px] font-bold uppercase tracking-[0.1em] transition-all whitespace-nowrap flex items-center gap-1.5 border active:scale-95",
+                  project.priority === p ? "bg-[var(--accent)] border-[var(--accent)] text-[var(--accent-foreground)] shadow-md shadow-black/5" : "bg-[var(--bg-app)] text-[var(--text-dim)] border-[var(--border-subtle)] hover:border-[var(--border-active)]"
+                )}
+              >
+                {p}
+                {project.priority === p && <Check size={10} strokeWidth={3} />}
+              </button>
+            ))}
+          </div>
+        </div>
       </section>
 
       {/* Summary of Direction */}
@@ -742,6 +1143,36 @@ export default function ProjectDetail() {
           </div>
         )}
       </section>
+
+      <button
+        type="button"
+        onClick={handleProductionToggle}
+        className="w-full flex items-center justify-between rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 text-left shadow-sm transition-all hover:border-[var(--border-active)] active:scale-[0.99]"
+      >
+        <div className="flex items-center gap-4">
+          <div className={cn(
+            "w-10 h-10 rounded-xl flex items-center justify-center transition-colors",
+            isProductionEnabled ? "bg-emerald-500/10 text-emerald-600" : "bg-[var(--bg-app)] text-[var(--text-dim)]"
+          )}>
+            <Factory size={18} strokeWidth={2.5} />
+          </div>
+          <div className="space-y-0.5">
+            <p className="text-sm font-bold text-[var(--text-main)]">Producción</p>
+            <p className="text-[9px] text-[var(--text-dim)] uppercase font-bold tracking-wider">
+              {isProductionEnabled ? 'Presupuesto, compras y cotizador activos' : 'Activar herramientas de producción'}
+            </p>
+          </div>
+        </div>
+        <div className={cn(
+          "w-12 h-6 rounded-full p-1 transition-colors duration-300",
+          isProductionEnabled ? "bg-[var(--accent)]" : "bg-gray-300"
+        )}>
+          <div className={cn(
+            "w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-300",
+            isProductionEnabled ? "translate-x-6" : "translate-x-0"
+          )} />
+        </div>
+      </button>
 
       {isProductionEnabled && id && (
         <ProjectProductionPanel
@@ -885,77 +1316,12 @@ export default function ProjectDetail() {
         onChange={(event) => void handleProcessPhotoChange(event)}
       />
 
-      {/* Log / Update Section */}
+      {/* History Section */}
       <section className="space-y-6">
         <div className="flex items-center gap-2 px-2">
           <History size={16} strokeWidth={2.5} className="text-[var(--text-dim)]" />
-          <label className="label-caps !ml-0 !mb-0">Bitácora de Avance</label>
+          <label className="label-caps !ml-0 !mb-0">Historial de avances</label>
         </div>
-
-        <form onSubmit={handleAddLog} className="card-clean p-5 space-y-5 shadow-xl shadow-black/5">
-          {/* Current Next Action Display */}
-          <div className="space-y-2 pb-4 border-b border-[var(--border-subtle)]">
-            <div className="flex items-center gap-2 text-[var(--accent)]">
-              <Target size={14} strokeWidth={2.5} />
-              <label className="text-[7px] font-bold uppercase tracking-widest opacity-70">Siguiente Acción Actual</label>
-            </div>
-            <p className="text-lg font-bold text-[var(--text-main)] tracking-tight leading-tight">
-              {project.nextAction || 'Definir el siguiente paso...'}
-            </p>
-          </div>
-
-          <textarea
-            required
-            value={newLog}
-            onChange={(e) => setNewLog(e.target.value)}
-            placeholder="¿Qué avanzaste?"
-            className="w-full bg-transparent border-none text-sm font-medium text-[var(--text-main)] placeholder:text-[var(--text-dim)] focus:ring-0 resize-none h-20"
-          />
-          <div className="pt-3 border-t border-[var(--border-subtle)] flex items-center justify-between">
-            <div className="flex-1 mr-4 space-y-3">
-              <input
-                type="text"
-                value={newNextAction}
-                onChange={(e) => setNewNextAction(e.target.value)}
-                placeholder="Nueva siguiente acción..."
-                disabled={isFinished}
-                className={cn(
-                  "w-full bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded-lg px-3 py-2.5 text-[8px] uppercase font-bold tracking-[0.1em] text-[var(--text-main)] placeholder:text-[var(--text-dim)] focus:border-[var(--border-active)] focus:outline-none transition-all shadow-inner",
-                  isFinished && "opacity-50 grayscale"
-                )}
-              />
-              <button
-                type="button"
-                onClick={() => setIsFinished(!isFinished)}
-                className={cn(
-                  "flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all active:scale-95",
-                  isFinished 
-                    ? "bg-green-500/10 border-green-500/30 text-green-500" 
-                    : "bg-[var(--bg-app)] border-[var(--border-subtle)] text-[var(--text-dim)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
-                )}
-              >
-                <div className={cn(
-                  "w-4 h-4 rounded-full border flex items-center justify-center transition-all",
-                  isFinished ? "bg-green-500 border-green-500" : "border-[var(--border-subtle)]"
-                )}>
-                  {isFinished && <Check size={10} className="text-white" strokeWidth={4} />}
-                </div>
-                <span className="text-[8px] font-bold uppercase tracking-[0.1em]">Dar por finalizado</span>
-              </button>
-            </div>
-            <button
-              type="submit"
-              className={cn(
-                "p-4 rounded-2xl transition-all shadow-lg shadow-black/10",
-                isFinished 
-                  ? "bg-green-500 text-white hover:scale-105 active:scale-95" 
-                  : "bg-[var(--accent)] text-[var(--accent-foreground)] hover:scale-105 active:scale-95"
-              )}
-            >
-              <Send size={20} strokeWidth={2.5} />
-            </button>
-          </div>
-        </form>
 
         <div className="space-y-6 px-2">
           {logs.map((log) => (
@@ -979,36 +1345,6 @@ export default function ProjectDetail() {
           ))}
         </div>
       </section>
-
-      <button
-        type="button"
-        onClick={handleProductionToggle}
-        className="w-full flex items-center justify-between rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 text-left shadow-sm transition-all hover:border-[var(--border-active)] active:scale-[0.99]"
-      >
-        <div className="flex items-center gap-4">
-          <div className={cn(
-            "w-10 h-10 rounded-xl flex items-center justify-center transition-colors",
-            isProductionEnabled ? "bg-emerald-500/10 text-emerald-600" : "bg-[var(--bg-app)] text-[var(--text-dim)]"
-          )}>
-            <Factory size={18} strokeWidth={2.5} />
-          </div>
-          <div className="space-y-0.5">
-            <p className="text-sm font-bold text-[var(--text-main)]">Producción</p>
-            <p className="text-[9px] text-[var(--text-dim)] uppercase font-bold tracking-wider">
-              {isProductionEnabled ? 'Presupuesto, compras y cotizador activos' : 'Activar herramientas de producción'}
-            </p>
-          </div>
-        </div>
-        <div className={cn(
-          "w-12 h-6 rounded-full p-1 transition-colors duration-300",
-          isProductionEnabled ? "bg-[var(--accent)]" : "bg-gray-300"
-        )}>
-          <div className={cn(
-            "w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-300",
-            isProductionEnabled ? "translate-x-6" : "translate-x-0"
-          )} />
-        </div>
-      </button>
     </div>
   );
 }
